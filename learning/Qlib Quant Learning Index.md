@@ -1,51 +1,53 @@
 # Qlib Quant Learning Index
 
-这是用 Qlib 学习量化交易的主入口。目标不是背 API，而是逐步建立一条完整研究链路：
+这套文档用 Qlib 作为练习平台，但学习重点是量化交易本身：市场假设、数据源、信号、策略、回测和风险。
 
-`数据 -> 特征 -> 模型 -> 预测信号 -> 策略 -> 回测 -> 复盘 -> 自定义扩展`
+你不需要先懂 Qlib 的内部实现。先把一条研究链路想清楚：
+
+`市场问题 -> 数据证据 -> 信号假设 -> 组合规则 -> 回测检验 -> 风险复盘`
 
 ## 你要达成的能力
 
-- 能解释一个 Qlib workflow 从 YAML 到回测结果的全过程。
-- 能读懂 `Alpha158`、`DatasetH`、`LGBModel`、`SignalRecord`、`PortAnaRecord` 分别做什么。
-- 能修改一个 benchmark 配置，观察模型和策略参数变化。
-- 能写出自己的 handler、model 或 strategy，并通过配置接入 Qlib。
-- 能把每次实验记录成可复盘的学习日志。
+- 能说清一个策略赚的是什么钱：趋势、反转、价值、质量、成长、波动或流动性。
+- 能判断一个数据源是否适合做研究：覆盖范围、频率、复权、幸存者偏差、延迟和缺失。
+- 能理解因子和机器学习模型都只是“信号生成方式”，不是策略本身。
+- 能读懂回测结果中的收益、超额收益、回撤、换手和交易成本。
+- 能把每次实验变成可复盘的策略假设，而不是只看收益曲线。
 
 ## 4 周学习路线
 
 1. [[Week 1 - Quant And Qlib Basics]]
-   - 先跑通项目，理解量化研究最小闭环。
+   - 建立量化交易框架，理解策略从哪里来。
 2. [[Week 2 - Data Dataset And Features]]
-   - 把数据层、特征、handler、dataset 关系讲清楚。
+   - 学数据源、数据质量和因子原理。
 3. [[Week 3 - Model Workflow And Experiment Tracking]]
-   - 理解模型训练、预测记录和 MLflow 实验产物。
+   - 学信号、模型和样本外验证。
 4. [[Week 4 - Strategy Backtest And Custom Extension]]
-   - 读策略和回测链路，完成第一个自定义扩展设计。
+   - 学组合构建、回测解释和风控边界。
 
 ## 快速入口
 
-- 常用命令：[[Qlib Commands]]
-- 源码地图：[[Qlib Source Map]]
+- 概念地图：[[Qlib Source Map]]
+- 实验命令：[[Qlib Commands]]
 - 学习记录：[[Qlib Learning Log]]
 
 ## 当前本地基线
 
-- 项目 fork：`theFlyYun/qlib`
-- 上游项目：`microsoft/qlib`
-- 本地环境：`.venv`
-- 已验证数据：简版 CN 1d 数据
-- 已跑通示例：`examples/benchmarks/LightGBM/workflow_config_lightgbm_Alpha158.yaml`
-- 已跑通烟测：`python -m pytest tests/misc/test_utils.py -q`
+- 已配置本地 `.venv` 环境。
+- 已下载简版 CN 日频数据。
+- 已跑通 LightGBM + Alpha158 示例。
+- 已能生成预测、信号分析和组合回测结果。
+
+这些只是学习工具。真正要关注的是：数据是否可信，信号是否有经济含义，策略是否能承受成本和风险。
 
 ## 学习方法
 
-每一周都按同一节奏推进：
+每一周只问四个问题：
 
-1. 先跑命令，看到真实输出。
-2. 再读配置，理解对象如何被实例化。
-3. 再读源码，追一条主链路。
-4. 最后写一段学习日志，记录你能解释什么、还卡在哪里。
+1. 这个策略假设是什么？
+2. 它依赖什么数据？
+3. 它可能因为什么失效？
+4. 回测结果支持还是反驳了这个假设？
 
 ## 相关笔记
 

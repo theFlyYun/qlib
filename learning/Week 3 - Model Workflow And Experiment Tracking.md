@@ -2,74 +2,83 @@
 
 ## 学习目标
 
-本周理解模型训练和实验记录。重点不是 LightGBM 的全部参数，而是 Qlib 如何从配置创建模型、训练模型、保存预测和实验产物。
+本周理解信号和模型。重点不是 LightGBM 的技术细节，而是模型在量化策略中的角色。
 
 完成后你应该能说清楚：
 
-- `task.model` 如何变成 `LGBModel` 实例。
-- `task_train` 做了哪些事。
-- `SignalRecord`、`SigAnaRecord`、`PortAnaRecord` 分别记录什么。
-- `mlruns/` 里为什么会有实验产物。
+- 信号是对未来收益的排序观点，不是确定性预测。
+- 机器学习模型是在组合多个因子，而不是凭空发现规律。
+- 训练集、验证集、测试集的分离是为了减少自欺欺人。
+- 实验记录的价值是复盘假设，而不是保存一堆文件。
 
-## 必懂概念
+## 信号是什么
 
-Qlib 的 workflow 是配置驱动的。YAML 里的对象一般长这样：
+信号可以理解为一句话：
 
-```yaml
-class: LGBModel
-module_path: qlib.contrib.model.gbdt
-kwargs:
-  loss: mse
-```
+> 在当前信息下，哪些资产未来相对更值得持有？
 
-`qlib/utils/mod.py` 里的 `init_instance_by_config` 会把它变成真实 Python 对象。这个机制是以后自定义模型、数据集、策略的关键。
+信号通常不是判断“涨还是跌”，而是给股票排序。排名靠前的股票进入候选买入，排名靠后的股票被回避或卖出。
 
-训练主链路可以先记成：
+常见信号来源：
 
-`qrun -> workflow -> qlib.init -> task_train -> init model/dataset -> fit -> save params -> generate records`
+- 价格行为：趋势、反转、波动。
+- 成交行为：放量、缩量、流动性变化。
+- 基本面：估值、盈利、成长、质量。
+- 市场结构：行业、指数成分、资金偏好。
 
-## 本项目对应源码/配置
+## 模型的角色
 
-- `qlib/cli/run.py`：读取 YAML、渲染模板、初始化 Qlib。
-- `qlib/model/trainer.py`：`task_train`、`_exe_task`。
-- `qlib/model/base.py`：模型基类接口。
-- `qlib/contrib/model/gbdt.py`：LightGBM 模型实现。
-- `qlib/workflow/record_temp.py`：内置 record 模板。
-- `qlib/workflow/exp.py`：实验上下文。
-- `examples/workflow_by_code.py`：代码方式对照 YAML 方式。
+模型负责把多个信号组合成一个分数。
 
-## 必跑命令
+简单模型更容易解释。复杂模型可能表现更好，但也更容易过拟合。
 
-重新跑主 workflow：
+用机器学习做量化时，最重要的不是模型名字，而是：
+
+- 输入信号是否有经济含义？
+- 标签是否真实代表未来收益？
+- 样本切分是否避免未来信息泄露？
+- 样本外结果是否稳定？
+- 扣除成本后是否仍有优势？
+
+## 如何看 IC
+
+IC 衡量预测分数和未来收益之间的相关性。
+
+- IC 为正：分数越高，未来收益越高的倾向越强。
+- Rank IC 为正：排序方向更接近未来收益排序。
+- ICIR：衡量 IC 的稳定性。
+
+IC 不等于收益。一个信号可能有正 IC，但组合构建、换手率和交易成本会吃掉收益。
+
+## 本周实验
+
+运行主示例：
 
 ```bash
 qrun examples/benchmarks/LightGBM/workflow_config_lightgbm_Alpha158.yaml
 ```
 
-查看实验目录：
+只关注这些输出：
 
-```bash
-find mlruns -maxdepth 3 -type f | sed -n '1,80p'
-```
-
-运行代码式 workflow：
-
-```bash
-python examples/workflow_by_code.py
-```
+- `score`：股票预测分数。
+- `IC` 和 `Rank IC`：信号方向是否有效。
+- `annualized_return`：年化表现。
+- `max_drawdown`：最大回撤。
+- `excess return with cost`：扣成本后的超额表现。
 
 ## 输出任务
 
-- 对照 `workflow_config_lightgbm_Alpha158.yaml` 和 `examples/workflow_by_code.py`，写出两者如何表达同一流程。
-- 在 `qlib/model/trainer.py` 里追 `_exe_task`，记录每一步输入和输出。
-- 找到 `SignalRecord` 生成的预测文件名，并解释它为什么能被策略使用。
-- 在 [[Qlib Learning Log]] 记录一次实验的模型参数、IC、回测指标和你对结果的解释。
+- 写出 LightGBM 示例的信号来源：它主要基于哪些类型的数据？
+- 用自己的话解释 IC 和回测收益为什么不是一回事。
+- 判断一次实验结果是否稳定：你还希望看哪些时间段或市场环境？
+- 在 [[Qlib Learning Log]] 写一段实验复盘，而不是只贴指标。
 
-## 常见问题
+## 常见误区
 
-- `record` 不是日志文本，而是一组会生成实验产物的对象。
-- `<MODEL>`、`<DATASET>`、`<PRED>` 是配置中的占位符，用于把上一步结果交给后续 record 或 strategy。
-- 先学会读实验产物，再讨论模型是否有效。
+- 看到正收益就认为策略有效。
+- 只调模型参数，不检查信号含义。
+- 用测试集反复调参，导致测试集变成训练集。
+- 只看平均收益，不看稳定性和极端风险。
 
 ## 下一步链接
 

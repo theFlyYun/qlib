@@ -2,72 +2,96 @@
 
 ## 学习目标
 
-本周理解 Qlib 的数据层：行情数据如何进入 Qlib，如何被组织成训练数据，`Alpha158` 这类 handler 到底做了什么。
+本周只关注数据。量化研究里，数据质量往往比模型复杂度更重要。
 
 完成后你应该能说清楚：
 
-- `provider_uri` 指向什么。
-- `DataLoader`、`DataHandler`、`DatasetH` 的分工。
-- `Alpha158` 和 `Alpha360` 为什么是常用起点。
-- 如果以后接入自有数据，应该优先从哪里扩展。
+- 常见量化数据源有哪些。
+- 为什么复权、停牌、退市、幸存者偏差会改变策略结果。
+- 因子和特征的区别不重要，关键是它们表达了什么市场假设。
+- Qlib 示例数据适合学习流程，但不能直接代表可交易数据质量。
 
-## 必懂概念
+## 数据源分层
 
-Qlib 的数据链路可以先记成：
+量化常见数据源可以按稳定性和获取难度分层。
 
-`Provider -> DataLoader -> DataHandler/DataHandlerLP -> DatasetH -> Model`
+第一层是行情数据：
 
-简单理解：
+- 开盘价、最高价、最低价、收盘价。
+- 成交量、成交额、换手率。
+- 复权价格、交易日历、停牌信息。
 
-- `Provider` 负责从 Qlib 数据目录读取基础行情。
-- `DataLoader` 负责把字段和表达式加载成 DataFrame。
-- `DataHandler` 负责特征、标签、处理器和数据切片。
-- `DatasetH` 把 handler 包装成模型训练需要的 train/valid/test。
-- `Model` 只关心 dataset 准备好的输入。
+第二层是基本面数据：
 
-## 本项目对应源码/配置
+- 财务报表。
+- 盈利能力、成长性、杠杆、现金流。
+- 估值指标，如 PE、PB、PS。
 
-- `scripts/get_data.py`：下载示例数据。
-- `scripts/dump_bin.py`：把 CSV/Parquet 转成 Qlib `.bin` 数据。
-- `qlib/data/data.py`：数据 provider 入口。
-- `qlib/data/dataset/loader.py`：数据加载器。
-- `qlib/data/dataset/handler.py`：handler 基类与数据处理。
-- `qlib/data/dataset/processor.py`：标准化、缺失处理等 processor。
-- `qlib/contrib/data/handler.py`：`Alpha158`、`Alpha360` 等内置 handler。
-- `examples/benchmarks/LightGBM/workflow_config_lightgbm_Alpha158.yaml`：本周重点读 `data_handler_config` 和 `task.dataset`。
+第三层是衍生和另类数据：
 
-## 必跑命令
+- 指数成分和行业分类。
+- 资金流、融资融券、期权隐含波动率。
+- 新闻、公告、舆情、宏观数据。
 
-检查数据目录是否存在：
+学习阶段先从行情数据开始。它最容易获得，也最容易暴露数据质量问题。
+
+## 数据质量检查
+
+拿到任何数据，都先问这些问题：
+
+- 覆盖范围：包含哪些股票、指数和时间段？
+- 频率：日频、分钟级还是 tick？
+- 复权：价格是否处理了分红、送转和拆股？
+- 幸存者偏差：是否只包含现在还活着的股票？
+- 未来函数：是否用了当时还不知道的数据？
+- 延迟：财报、公告、指数成分是否按真实发布时间处理？
+- 缺失：停牌、上市初期、退市前后如何处理？
+
+这些问题不解决，模型越强，错误越隐蔽。
+
+## 因子是什么
+
+因子就是把原始数据加工成一种可检验的市场线索。
+
+例子：
+
+- 动量因子：过去一段时间涨得多的股票，未来可能继续强。
+- 反转因子：短期跌太多的股票，未来可能反弹。
+- 波动因子：波动较低的股票，可能风险调整后更稳。
+- 成交量因子：异常放量可能代表信息进入市场。
+- 估值因子：便宜股票可能有长期风险溢价。
+
+`Alpha158` 可以先理解成一组基于价格和成交量的常见因子集合。你暂时不需要记住每个因子的公式。
+
+## 本周实验
+
+查看本地数据是否存在：
 
 ```bash
 ls ~/.qlib/qlib_data/cn_data
 ```
 
-重新下载简版数据：
+重新下载学习用数据：
 
 ```bash
 python scripts/get_data.py qlib_data --name qlib_data_simple --target_dir ~/.qlib/qlib_data/cn_data --interval 1d --region cn
 ```
 
-查看 LightGBM 配置里的 dataset 部分：
-
-```bash
-sed -n '1,90p' examples/benchmarks/LightGBM/workflow_config_lightgbm_Alpha158.yaml
-```
+本项目当前使用的是简版 CN 日频数据，适合学习 Qlib 流程。做正式研究时，应换成质量更可控的数据源。
 
 ## 输出任务
 
-- 写出 `task.dataset` 里每一层配置的含义。
-- 比较 `train`、`valid`、`test` 三个 segment 的日期范围。
-- 找到 `Alpha158` 的类定义，记录它默认生成哪类特征。
-- 在 [[Qlib Learning Log]] 写下：如果你有自己的 CSV 行情数据，会选择 `dump_bin.py` 还是自定义 loader，为什么。
+- 写一张“数据源检查表”，包含覆盖、频率、复权、退市、延迟、缺失。
+- 选 3 个你感兴趣的因子，写出它们背后的市场假设。
+- 判断当前示例数据为什么适合学习，但不适合直接实盘。
+- 在 [[Qlib Learning Log]] 记录你未来想接入的数据源。
 
-## 常见问题
+## 常见误区
 
-- 不要一开始就改 provider 底层。先通过 handler、processor、loader 扩展。
-- `.bin` 是 Qlib 的高效本地数据格式，不等于机器学习模型文件。
-- `fit_start_time`、`fit_end_time` 通常用于拟合标准化参数，不一定等于训练集全流程。
+- 觉得数据能下载就能研究。
+- 忽略指数成分变化造成的幸存者偏差。
+- 用发布后的财务数据回填到历史时间点。
+- 把缺失数据简单填充，却不问为什么缺失。
 
 ## 下一步链接
 

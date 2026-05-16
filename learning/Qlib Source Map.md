@@ -1,78 +1,84 @@
 # Qlib Source Map
 
-这份源码地图只保留学习 Qlib 量化流程最关键的入口。读源码时不要从目录树顶层乱翻，按主链路追。
+这份笔记保留为“概念地图”。它不要求你读源码，只帮助你理解 Qlib 各模块在量化研究中的位置。
 
-## 主链路
+## 一条研究链路
 
-`qrun -> qlib.init -> task_train -> init_instance_by_config -> model.fit -> record.generate -> backtest`
+`数据源 -> 因子/信号 -> 模型打分 -> 策略持仓 -> 回测评估 -> 实验复盘`
 
-## CLI 与配置
+## 数据源
 
-- `qlib/cli/run.py`
-  - `workflow(config_path, experiment_name, uri_folder)` 是配置驱动入口。
-  - 负责读取 YAML、处理 `BASE_CONFIG_PATH`、设置 `sys.path`、初始化 Qlib、调用 `task_train`。
-- `qlib/utils/mod.py`
-  - `init_instance_by_config` 是扩展机制核心。
-  - YAML 的 `class`、`module_path`、`kwargs` 会通过它变成真实对象。
+数据源回答：研究基于什么事实？
 
-## 初始化与配置
+学习阶段使用简版 CN 日频数据。正式研究需要更严肃地评估数据供应商、复权方式、退市股票、停牌和财报发布时间。
 
-- `qlib/__init__.py`
-  - `qlib.init(...)` 会设置全局配置、清缓存、注册数据路径。
-- `qlib/config.py`
-  - 全局配置对象和默认 client/server 配置。
+重点问题：
 
-## 数据层
+- 数据是否覆盖研究所需市场？
+- 是否有幸存者偏差？
+- 是否能模拟真实可获得时间？
 
-- `qlib/data/data.py`
-  - 数据 provider 入口。
-- `qlib/data/dataset/loader.py`
-  - 加载字段和表达式。
-- `qlib/data/dataset/handler.py`
-  - handler 组织特征、标签、处理器和切片。
-- `qlib/data/dataset/processor.py`
-  - 缺失处理、标准化等 processor。
-- `qlib/contrib/data/handler.py`
-  - `Alpha158`、`Alpha360` 等常用 handler。
+## 因子/信号
 
-## 模型与训练
+因子回答：你认为市场中存在什么规律？
 
-- `qlib/model/base.py`
-  - 自定义模型需要对齐 `fit(dataset, reweighter=None)` 和 `predict(dataset, segment="test")`。
-- `qlib/model/trainer.py`
-  - `task_train` 和 `_exe_task` 串起 model、dataset、record。
-- `qlib/contrib/model/gbdt.py`
-  - LightGBM 模型实现，是第一阶段最值得读的模型。
+`Alpha158` 可以理解成一组常见价格和成交量信号。它不是神奇公式，而是把历史行情转成模型能使用的候选线索。
 
-## Workflow 与实验记录
+重点问题：
 
-- `qlib/workflow/exp.py`
-  - 实验上下文。
-- `qlib/workflow/recorder.py`
-  - 实验产物保存。
-- `qlib/workflow/record_temp.py`
-  - `SignalRecord`、`SigAnaRecord`、`PortAnaRecord`。
+- 这个因子有什么经济含义？
+- 它更像趋势、反转、波动还是流动性？
+- 它在哪些市场环境下可能失效？
 
-## 策略与回测
+## 模型打分
 
-- `qlib/strategy/base.py`
-  - 策略基类。
-- `qlib/contrib/strategy/signal_strategy.py`
-  - `TopkDropoutStrategy`。
-- `qlib/backtest/executor.py`
-  - 回测执行器。
-- `qlib/backtest/exchange.py`
-  - 交易价格、限制、成本等市场模拟。
-- `qlib/backtest/decision.py`
-  - 交易决策和订单对象。
+模型回答：如何把多个信号合成一个排序？
 
-## 示例优先级
+LightGBM 示例会给每只股票一个预测分数。分数越高，代表模型越偏向认为它未来相对更好。
 
-1. `examples/benchmarks/LightGBM/workflow_config_lightgbm_Alpha158.yaml`
-2. `examples/workflow_by_code.py`
-3. `examples/highfreq/workflow.py`
-4. `examples/nested_decision_execution/workflow.py`
-5. `examples/portfolio/config_enhanced_indexing.yaml`
+重点问题：
+
+- 模型是否只是在过拟合历史？
+- 样本外表现是否稳定？
+- IC 和回测收益是否方向一致？
+
+## 策略持仓
+
+策略回答：根据分数实际怎么交易？
+
+`TopkDropoutStrategy` 可以理解成选择分数靠前的股票，并限制每次替换数量。它把信号变成组合。
+
+重点问题：
+
+- 持有多少只股票？
+- 多久调仓一次？
+- 换手和交易成本能否承受？
+
+## 回测评估
+
+回测回答：这个想法在历史上是否经得起基本检验？
+
+重点指标：
+
+- 年化收益。
+- 超额收益。
+- 最大回撤。
+- 信息比率。
+- 交易成本后表现。
+- 不同市场阶段稳定性。
+
+## 实验复盘
+
+复盘回答：这次实验支持还是反驳了策略假设？
+
+好的复盘要写清楚：
+
+- 策略假设。
+- 数据来源。
+- 信号逻辑。
+- 回测结果。
+- 主要风险。
+- 下一步验证。
 
 ## 相关笔记
 

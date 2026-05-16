@@ -2,71 +2,91 @@
 
 ## 学习目标
 
-本周把预测信号接到策略和回测，并设计第一个自己的扩展方向。
+本周理解策略如何落地。信号只是排序观点，策略才决定买什么、卖什么、持有多久、承担多少风险。
 
 完成后你应该能说清楚：
 
-- `TopkDropoutStrategy` 如何把预测信号变成持仓。
-- `Executor` 和 `Exchange` 在回测里负责什么。
-- 回测指标里的 benchmark return、excess return、cost 大概代表什么。
-- 自定义 handler、model、strategy 应该放在哪里，如何接入 YAML。
+- 策略参数如何影响收益、换手和成本。
+- 回测不是证明策略赚钱，而是排除明显不靠谱的想法。
+- 风控不是附加项，而是策略的一部分。
+- 一个策略从研究到实盘还需要经过哪些检查。
 
-## 必懂概念
+## 从信号到策略
 
-Qlib 回测链路可以先记成：
+一个常见股票多头策略可以这样理解：
 
-`Strategy -> TradeDecision/Order -> Executor -> Exchange -> Account/Reports`
+1. 每天或每周给股票打分。
+2. 选择分数最高的一组股票。
+3. 卖出分数下降或不再入选的股票。
+4. 控制持仓数量、调仓频率和交易成本。
+5. 和基准指数比较超额收益。
 
-最常见的学习路径是先改策略参数，而不是马上写新策略：
+Qlib 示例里的 `TopkDropoutStrategy` 可以简单理解为：
 
-- `topk`：持有打分最高的多少只股票。
-- `n_drop`：每期调仓时替换多少只。
-- `benchmark`：用来比较超额收益的基准。
-- `open_cost`、`close_cost`、`min_cost`：交易成本假设。
+- 持有排名靠前的 `topk` 只股票。
+- 每次调仓替换其中 `n_drop` 只。
+- 通过限制替换数量降低换手和成本。
 
-## 本项目对应源码/配置
+## 回测要看什么
 
-- `qlib/strategy/base.py`：策略基类。
-- `qlib/contrib/strategy/signal_strategy.py`：`TopkDropoutStrategy`。
-- `qlib/backtest/__init__.py`：回测入口。
-- `qlib/backtest/executor.py`：执行器。
-- `qlib/backtest/exchange.py`：撮合、价格、交易成本。
-- `qlib/backtest/decision.py`：交易决策和订单结构。
-- `examples/nested_decision_execution/workflow.py`：更复杂的嵌套执行示例。
-- `examples/portfolio/config_enhanced_indexing.yaml`：组合优化示例。
+不要只看收益。至少看这些维度：
 
-## 必跑命令
+- 年化收益：策略长期平均赚多少。
+- 超额收益：相对基准多赚多少。
+- 最大回撤：最糟糕时亏多少。
+- 波动率：收益是否稳定。
+- 信息比率：单位波动带来的超额收益。
+- 换手率：交易频率是否过高。
+- 交易成本：成本后收益是否还成立。
 
-复制一份配置做实验，不改原 benchmark：
+如果一个策略只在不计成本时赚钱，通常不可用。
+
+## 风险边界
+
+策略要提前定义失效条件：
+
+- 市场风格切换后是否失效？
+- 极端行情下回撤是否可承受？
+- 持仓是否过度集中？
+- 是否依赖无法稳定获得的数据？
+- 是否对交易成本和滑点过于敏感？
+- 是否只在某个特殊时间段有效？
+
+没有失效条件的策略，很难复盘。
+
+## 本周实验
+
+复制一份配置做参数实验：
 
 ```bash
 cp examples/benchmarks/LightGBM/workflow_config_lightgbm_Alpha158.yaml /tmp/qlib_topk_experiment.yaml
 ```
 
-手动调整 `/tmp/qlib_topk_experiment.yaml` 中的 `topk` 和 `n_drop`，再运行：
+调整 `topk` 和 `n_drop` 后运行：
 
 ```bash
 qrun /tmp/qlib_topk_experiment.yaml --experiment_name topk_experiment
 ```
 
-查看回测产物：
+观察重点：
 
-```bash
-find mlruns -name 'port_analysis_1day.pkl' -o -name 'indicator_analysis_1day.pkl'
-```
+- `topk` 变大后，收益和回撤是否更平滑？
+- `n_drop` 变大后，收益是否提高，成本是否也提高？
+- 扣成本前后结果差异有多大？
 
 ## 输出任务
 
-- 设计 3 组 `topk/n_drop` 参数，并记录回测结果变化。
-- 阅读 `TopkDropoutStrategy`，用自己的话解释它的调仓逻辑。
-- 写一个自定义扩展提案：你想先扩展 handler、model 还是 strategy，为什么。
-- 在 [[Qlib Learning Log]] 总结 4 周后你最想继续深入的一个方向。
+- 设计 3 组 `topk/n_drop` 参数并记录结果。
+- 写出你认为最合理的一组参数，以及理由。
+- 写一份策略复盘：收益来源、数据依赖、失效风险、下一步验证。
+- 在 [[Qlib Learning Log]] 总结 4 周后最想深入的策略方向。
 
-## 常见问题
+## 常见误区
 
-- 回测结果不代表真实投资收益；先把它当成研究框架验证工具。
-- 交易成本假设会明显影响超额收益，不能忽略。
-- 早期扩展建议新建独立扩展包，不要直接改 `qlib/` 核心源码。
+- 把回测收益当成未来收益。
+- 忽略成本和滑点。
+- 只看一个市场阶段。
+- 没有基准，也就无法判断是否真的有超额收益。
 
 ## 下一步链接
 
