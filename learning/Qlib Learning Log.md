@@ -37,6 +37,21 @@
 - Topk 策略的持仓数量和换手率如何影响结果？
 - 这个策略在哪些市场阶段可能失效？
 
+## 2026-05-17 Nasdaq 与 Qlib 模型复盘
+
+- 学习主题：从规则打分升级到 Qlib Alpha158 + LightGBM 模型。
+- 策略假设：价格和成交量特征可能预测股票未来短期横截面收益。
+- 使用数据：Nasdaq-listed 非 ETF 股票，按总市值取前 500，下载近 2 年日线 OHLCV。
+- 信号来源：Alpha158 技术面特征。
+- 标签设计：当前默认预测 `t+1` 到 `t+2` 的 1 日收益；后续应改成未来 5 日收益。
+- 模型结果：最新预测日 Top5 为 AXTI、LUNR、NBIS、MXL、FTNT。
+- 验证结果：Test 日均 IC 为 -0.009905，Rank IC 为 -0.003036。
+- 当前判断：流程跑通，但信号暂未证明有效，不能作为买入建议。
+- 遗留问题：数据历史太短、股票池复杂、缺少财报/估值/行业/宏观/新闻、未做成本后 TopK 回测。
+- 下一步验证：配置化流水线、40 年数据方案、5 日收益标签、行业内排序、PIT 财报与估值特征、完整组合回测。
+
+详细笔记：[[Learning Session - 2026-05-17 Nasdaq Qlib Model]]
+
 ## 复盘原则
 
 - 先写假设，再看结果。
@@ -50,3 +65,4 @@
 [[Qlib Commands]]
 [[Qlib Source Map]]
 [[Week 1 - Quant And Qlib Basics]]
+[[Learning Session - 2026-05-17 Nasdaq Qlib Model]]

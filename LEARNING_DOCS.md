@@ -2,7 +2,7 @@
 
 这个仓库的系统学习文档现在放在项目内的 `learning/` 目录中，推荐通过 GitHub 同步和在 iOS 端阅读。这样不占用 iCloud 空间，也能让学习文档跟代码版本保持一致。
 
-文档主线已经调整为量化交易学习路线：重点是策略、原理、数据源、回测和风险，不以技术实现细节为主。
+文档主线已经调整为量化交易学习路线：重点是策略、原理、数据源、回测、组合风控和实盘约束，不以技术实现细节为主。Qlib 是练习平台，学习路线不局限于当前项目。
 
 ## 推荐方式：GitHub
 
@@ -30,6 +30,8 @@ learning/
 包含：
 
 - `README.md`
+- `Quant Learning Roadmap.md`
+- `Quant Resources.md`
 - `Qlib Quant Learning Index.md`
 - `Week 1 - Quant And Qlib Basics.md`
 - `Week 2 - Data Dataset And Features.md`
@@ -69,4 +71,4 @@ qrun examples/benchmarks/LightGBM/workflow_config_lightgbm_Alpha158.yaml
 python -m pytest tests/misc/test_utils.py -q
 ```
 
-完整学习路线请以 Obsidian vault 中的文档为准。
+完整学习路线请以仓库内 `learning/` 文档为准。

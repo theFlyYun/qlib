@@ -1,6 +1,6 @@
 # Qlib Quant Learning Index
 
-这套文档用 Qlib 作为练习平台，但学习重点是量化交易本身：市场假设、数据源、信号、策略、回测和风险。
+这套文档用 Qlib 作为练习平台，但学习重点是量化交易本身：市场假设、数据源、信号、策略、回测、组合风控和实盘约束。
 
 你不需要先懂 Qlib 的内部实现。先把一条研究链路想清楚：
 
@@ -16,6 +16,8 @@
 
 ## 4 周学习路线
 
+完整路线先看 [[Quant Learning Roadmap]]。下面 4 周是入门压缩版，用来跑通第一轮认知闭环。
+
 1. [[Week 1 - Quant And Qlib Basics]]
    - 建立量化交易框架，理解策略从哪里来。
 2. [[Week 2 - Data Dataset And Features]]
@@ -27,6 +29,9 @@
 
 ## 快速入口
 
+- 完整路线：[[Quant Learning Roadmap]]
+- 今日复盘：[[Learning Session - 2026-05-17 Nasdaq Qlib Model]]
+- 外部资料：[[Quant Resources]]
 - 概念地图：[[Qlib Source Map]]
 - 实验命令：[[Qlib Commands]]
 - 学习记录：[[Qlib Learning Log]]
@@ -55,6 +60,9 @@
 [[Week 2 - Data Dataset And Features]]
 [[Week 3 - Model Workflow And Experiment Tracking]]
 [[Week 4 - Strategy Backtest And Custom Extension]]
+[[Quant Learning Roadmap]]
+[[Learning Session - 2026-05-17 Nasdaq Qlib Model]]
+[[Quant Resources]]
 [[Qlib Commands]]
 [[Qlib Source Map]]
 [[Qlib Learning Log]]
