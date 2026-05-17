@@ -98,6 +98,15 @@ export SEC_EDGAR_USER_AGENT="Your Name your-email@example.com"
   --config analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_lgbm_10y_eval_all.yaml
 ```
 
+运行固定 10 年窗口、股票池清洗、历史长度分桶、桶内 Top10 的 EDGAR 实验：
+
+```bash
+export SEC_EDGAR_USER_AGENT="Your Name your-email@example.com"
+
+.venv/bin/python -u analysis/nasdaq_top500_score/run_qlib_alpha158_lightgbm.py \
+  --config analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_lgbm_10y_clean_bucket_top10.yaml
+```
+
 运行真实 EDGAR smoke test 前先设置 User-Agent：
 
 ```bash
@@ -126,6 +135,20 @@ run = Path("analysis/nasdaq_top500_score/runs/nasdaq_alpha158_edgar_lgbm_10y_eva
 features = pd.read_parquet(run / "fundamental_features.parquet")
 print(features.shape)
 print(features.index.get_level_values("instrument").nunique())
+PY
+```
+
+复盘清洗 + 分桶 Top10 实验：
+
+```bash
+sed -n '1,260p' analysis/nasdaq_top500_score/runs/nasdaq_alpha158_edgar_lgbm_10y_clean_bucket_top10/report.md
+
+.venv/bin/python - <<'PY'
+import pandas as pd
+run = "analysis/nasdaq_top500_score/runs/nasdaq_alpha158_edgar_lgbm_10y_clean_bucket_top10"
+cols = ["selected_rank", "symbol", "history_bucket", "bucket_rank", "global_rank", "score"]
+print(pd.read_csv(f"{run}/selected_top10.csv").loc[:, cols])
+print(pd.read_csv(f"{run}/history_buckets.csv")["history_bucket"].value_counts())
 PY
 ```
 

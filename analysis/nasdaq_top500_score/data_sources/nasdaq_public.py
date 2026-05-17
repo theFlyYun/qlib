@@ -15,6 +15,11 @@ import requests
 
 from .base import PreparedData, parse_float, reset_directory, write_failures
 
+try:
+    from analysis.nasdaq_top500_score.selection import clean_stock_universe
+except ImportError:  # pragma: no cover - supports direct script execution.
+    from selection import clean_stock_universe
+
 NASDAQ_LISTED_URL = "https://www.nasdaqtrader.com/dynamic/SymDir/nasdaqlisted.txt"
 NASDAQ_SCREENER_URL = "https://api.nasdaq.com/api/screener/stocks"
 NASDAQ_HISTORICAL_URL = "https://api.nasdaq.com/api/quote/{symbol}/historical"
@@ -103,6 +108,7 @@ class NasdaqPublicDataSource:
         frame["market_cap"] = frame["marketCap"].map(parse_float)
         frame["last_sale"] = frame["lastsale"].map(parse_float)
         frame = frame[frame["market_cap"].notna() & (frame["market_cap"] > 0)]
+        frame, _ = clean_stock_universe(frame, self.config["universe"], self.paths.get("universe_exclusions_csv"))
         frame = frame.sort_values("market_cap", ascending=False).head(
             int(self.config["universe"]["top_n_by_market_cap"])
         )

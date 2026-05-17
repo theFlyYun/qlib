@@ -822,3 +822,129 @@ analysis/nasdaq_top500_score/runs/nasdaq_alpha158_edgar_lgbm_10y_eval_all/
 learning/99-logs/Qlib Learning Log.md
 learning/99-logs/Stage Completion Records.md
 ```
+
+## 2026-05-17 阶段 D.1：股票池清洗、历史长度分桶与桶内 Top10
+
+目标：
+
+在固定 10 年 Nasdaq + EDGAR 实验上，过滤特殊证券，并用历史长度桶控制最终 Top10 名额。
+
+为什么要做：
+
+上一阶段 Top5 出现 warrant，说明当前 Nasdaq public 股票池虽然过滤了 ETF 和 test issue，但仍混有 warrant、preferred、unit、right、notes 等不适合作为普通股候选的证券。模型分数本身没有证券类型常识，所以必须先清洗股票池，再做候选组合。
+
+输入数据：
+
+```text
+股票池：当前 Nasdaq 清洗后市值前 500
+固定行情窗口：2016-05-17 到 2026-05-17
+财报来源：SEC EDGAR 10-K / 10-Q / companyfacts
+标签：未来 1 日收益
+模型：Alpha158 + EDGAR + LightGBM
+```
+
+核心概念：
+
+```text
+特殊证券过滤
+历史长度分桶
+桶内排名
+固定桶名额
+统一模型 score
+```
+
+实验动作：
+
+```text
+新增 security_filter
+新增 history_buckets
+新增 bucket_ranking
+新增 nasdaq_alpha158_edgar_lgbm_10y_clean_bucket_top10.yaml
+输出 universe_exclusions.csv
+输出 history_buckets.csv
+输出 bucketed_predictions.csv
+输出 selected_top10.csv
+生成清洗和分桶报告
+```
+
+评价指标：
+
+```text
+py_compile 通过
+17 个相关单元测试通过
+所有 YAML 配置可解析
+真实配置运行成功
+最终 Top10 严格符合 4/3/2/1 桶名额
+大型 runs 输出继续不进入 Git
+```
+
+结果解读：
+
+```text
+股票池清洗剔除数量：439
+进入 Qlib source CSV：482
+下载失败或历史不足：18
+最新日可预测股票数：482
+Test 日均 IC：0.015196
+Test 日均 Rank IC：0.004995
+参与 IC 计算交易日：593
+```
+
+清洗剔除原因：
+
+```text
+name:warrant：228
+name:preferred：101
+symbol:.*W$：45
+name:notes：34
+name:unit：13
+name:right：5
+name:depositary_shares：5
+symbol:.*WT$：3
+symbol:.*WS$：3
+name:debenture：1
+name:bond：1
+```
+
+最新日可预测股票分桶：
+
+```text
+full_10y：335
+5_10y：86
+2_5y：48
+lt_2y：13
+```
+
+最终 Top10：
+
+```text
+full_10y：AMD, SIMO, PLUG, MXL
+5_10y：NBIS, BILI, GTX
+2_5y：LUNR, RGC
+lt_2y：SNDK
+```
+
+遗留问题：
+
+```text
+清洗规则仍是文本规则，不是专业证券主数据
+ADR/ADS 暂时保留，后续需要单独观察
+Technology / Semiconductors 仍然偏集中
+尚未做未来 5 日标签
+尚未做 TopK 成本后回测
+```
+
+下一阶段准备：
+
+在当前清洗 + 分桶 Top10 基础上加入行业内名额约束，例如单一 sector 最多 4 只、单一 industry 最多 2 只，避免候选组合过度集中在 Technology 或 Semiconductors。
+
+产出文件：
+
+```text
+analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_lgbm_10y_clean_bucket_top10.yaml
+analysis/nasdaq_top500_score/selection/history_buckets.py
+tests/analysis/test_stock_pool_selection.py
+learning/05-data-expansion/Stock Pool Cleaning And History Buckets.md
+learning/99-logs/Qlib Learning Log.md
+learning/99-logs/Stage Completion Records.md
+```

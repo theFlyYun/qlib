@@ -22,10 +22,12 @@ try:
     from data_sources import DataSourceUnavailable, create_data_source
     from fundamentals import build_fundamental_features
     from industry import build_industry_feature_frame
+    from selection import apply_bucket_ranking, build_history_buckets
 except ImportError:  # pragma: no cover - supports importing this script as a module in tests.
     from analysis.nasdaq_top500_score.data_sources import DataSourceUnavailable, create_data_source
     from analysis.nasdaq_top500_score.fundamentals import build_fundamental_features
     from analysis.nasdaq_top500_score.industry import build_industry_feature_frame
+    from analysis.nasdaq_top500_score.selection import apply_bucket_ranking, build_history_buckets
 
 WORKSPACE = Path(__file__).resolve().parents[2]
 ROOT = Path(__file__).resolve().parent
@@ -129,6 +131,23 @@ def validate_config(config: dict[str, Any]) -> None:
             raise ValueError("split train_ratio + valid_ratio + test_ratio must equal 1.0")
     else:
         validate_date_split(config["split"])
+    validate_bucket_ranking(config)
+
+
+def validate_bucket_ranking(config: dict[str, Any]) -> None:
+    ranking = config.get("bucket_ranking", {})
+    if not ranking or not ranking.get("enabled", False):
+        return
+    if not config.get("history_buckets", {}).get("enabled", False):
+        raise ValueError("enabled bucket_ranking requires history_buckets.enabled: true")
+    quotas = ranking.get("quotas", {})
+    missing = [bucket for bucket in ["full_10y", "5_10y", "2_5y", "lt_2y"] if bucket not in quotas]
+    if missing:
+        raise ValueError(f"bucket_ranking.quotas missing bucket(s): {', '.join(missing)}")
+    top_n = int(config["report"]["top_n"])
+    quota_total = sum(int(value) for value in quotas.values())
+    if quota_total != top_n:
+        raise ValueError("bucket_ranking quota total must equal report.top_n")
 
 
 def date_value(value: Any) -> pd.Timestamp:
@@ -164,14 +183,18 @@ def build_paths(config: dict[str, Any]) -> dict[str, Path]:
         "source_dir": output_dir / "qlib_source_csv",
         "qlib_dir": output_dir / "qlib_data",
         "universe_csv": output_dir / "universe.csv",
+        "universe_exclusions_csv": output_dir / "universe_exclusions.csv",
         "failures_csv": output_dir / "download_failures.csv",
         "membership_csv": output_dir / "membership.csv",
+        "history_buckets_csv": output_dir / "history_buckets.csv",
         "fundamental_features": output_dir / "fundamental_features.parquet",
         "fundamental_failures": output_dir / "fundamental_failures.csv",
         "edgar_cik_map": output_dir / "edgar_cik_map.csv",
         "industry_features": output_dir / "industry_features.parquet",
         "industry_failures": output_dir / "industry_failures.csv",
         "predictions_csv": output_dir / "predictions.csv",
+        "bucketed_predictions_csv": output_dir / "bucketed_predictions.csv",
+        "selected_top10_csv": output_dir / "selected_top10.csv",
         "report_md": output_dir / "report.md",
         "resolved_config": output_dir / "resolved_config.yaml",
     }
@@ -360,8 +383,7 @@ def train_and_predict(
     merged = latest.merge(universe, on="symbol", how="left")
     merged = merged.sort_values("score", ascending=False)
     merged.to_csv(paths["predictions_csv"], index=False)
-    top_n = int(config["report"]["top_n"])
-    top_predictions = merged.head(top_n)
+    top_predictions, bucket_meta = apply_bucket_ranking(merged, config, paths)
 
     label = dataset.prepare("test", col_set="label", data_key=DataHandlerLP.DK_L)
     label_series = label.iloc[:, 0] if isinstance(label, pd.DataFrame) else label
@@ -392,6 +414,10 @@ def train_and_predict(
         "industry_feature_count": 0 if industry_result is None else int(industry_result.features.shape[1]),
         "industry_failure_count": 0 if industry_result is None else int(len(industry_result.failures)),
         "industry_coverage": {} if industry_result is None else industry_result.coverage,
+        "bucket_ranking_enabled": bool(bucket_meta["bucket_ranking_enabled"]),
+        "history_bucket_counts": bucket_meta["bucket_counts"],
+        "bucket_quotas": bucket_meta["bucket_quotas"],
+        "selected_bucket_counts": bucket_meta["selected_bucket_counts"],
         "top_sector_counts": top_predictions["sector"].fillna("UNKNOWN").value_counts().to_dict()
         if "sector" in top_predictions
         else {},
@@ -399,7 +425,7 @@ def train_and_predict(
         if "industry" in top_predictions
         else {},
     }
-    return merged, meta
+    return top_predictions, meta
 
 
 def combine_alpha_and_feature_frames_raw(
@@ -454,6 +480,12 @@ def write_report(
     top_n = int(config["report"]["top_n"])
     top_predictions = predictions.head(top_n)
     model_kwargs = config["model"]["kwargs"]
+    universe_exclusions = read_optional_csv(paths["universe_exclusions_csv"])
+    exclusion_reason_counts = (
+        universe_exclusions["exclusion_reason"].value_counts().to_dict()
+        if "exclusion_reason" in universe_exclusions and not universe_exclusions.empty
+        else {}
+    )
     lines = [
         f"# {config['experiment']['name']} Report",
         "",
@@ -513,21 +545,49 @@ def write_report(
         "",
         f"## Top {top_n} 预测结果",
         "",
-        "| Rank | Symbol | Name | Qlib Score | Market Cap | Sector | Industry |",
-        "|---:|---|---|---:|---:|---|---|",
     ]
-    for rank, (_, row) in enumerate(top_predictions.iterrows(), start=1):
-        lines.append(
-            "| {rank} | {symbol} | {name} | {score:.8f} | {market_cap} | {sector} | {industry} |".format(
-                rank=rank,
-                symbol=row.get("symbol", row.get("instrument", "N/A")),
-                name=str(row.get("name", "")).replace("|", "/"),
-                score=float(row["score"]),
-                market_cap=fmt_optional_money(row.get("market_cap")),
-                sector=str(row.get("sector", "")).replace("|", "/"),
-                industry=str(row.get("industry", "")).replace("|", "/"),
-            )
+    if meta.get("bucket_ranking_enabled", False):
+        lines.extend(
+            [
+                "| Rank | Symbol | Bucket | Bucket Rank | Global Rank | Name | Qlib Score | Market Cap | Sector | Industry |",
+                "|---:|---|---|---:|---:|---|---:|---:|---|---|",
+            ]
         )
+    else:
+        lines.extend(
+            [
+                "| Rank | Symbol | Name | Qlib Score | Market Cap | Sector | Industry |",
+                "|---:|---|---|---:|---:|---|---|",
+            ]
+        )
+    for rank, (_, row) in enumerate(top_predictions.iterrows(), start=1):
+        if meta.get("bucket_ranking_enabled", False):
+            lines.append(
+                "| {rank} | {symbol} | {bucket} | {bucket_rank} | {global_rank} | {name} | {score:.8f} | {market_cap} | {sector} | {industry} |".format(
+                    rank=rank,
+                    symbol=row.get("symbol", row.get("instrument", "N/A")),
+                    bucket=row.get("history_bucket", "N/A"),
+                    bucket_rank=row.get("bucket_rank", "N/A"),
+                    global_rank=row.get("global_rank", "N/A"),
+                    name=str(row.get("name", "")).replace("|", "/"),
+                    score=float(row["score"]),
+                    market_cap=fmt_optional_money(row.get("market_cap")),
+                    sector=str(row.get("sector", "")).replace("|", "/"),
+                    industry=str(row.get("industry", "")).replace("|", "/"),
+                )
+            )
+        else:
+            lines.append(
+                "| {rank} | {symbol} | {name} | {score:.8f} | {market_cap} | {sector} | {industry} |".format(
+                    rank=rank,
+                    symbol=row.get("symbol", row.get("instrument", "N/A")),
+                    name=str(row.get("name", "")).replace("|", "/"),
+                    score=float(row["score"]),
+                    market_cap=fmt_optional_money(row.get("market_cap")),
+                    sector=str(row.get("sector", "")).replace("|", "/"),
+                    industry=str(row.get("industry", "")).replace("|", "/"),
+                )
+            )
 
     lines.extend(
         [
@@ -546,6 +606,25 @@ def write_report(
             f"- 行业分类失败或跳过数量：{meta.get('industry_failure_count', 0)}",
             "",
             "IC 可以粗略理解为：每个交易日横截面上，模型预测分数和真实后续收益的相关性。",
+            "",
+            "## 股票池清洗与历史分桶",
+            "",
+            *(
+                [
+                    "- 桶内 TopN 排名：已启用。",
+                    f"- 股票池清洗剔除数量：{len(universe_exclusions)}",
+                    "- 清洗剔除原因：",
+                    *format_yaml_block(exclusion_reason_counts),
+                    "- 桶名额：",
+                    *format_yaml_block(meta.get("bucket_quotas", {})),
+                    "- 最新日可预测股票分桶：",
+                    *format_yaml_block(meta.get("history_bucket_counts", {})),
+                    "- 最终 TopN 分桶：",
+                    *format_yaml_block(meta.get("selected_bucket_counts", {})),
+                ]
+                if meta.get("bucket_ranking_enabled", False)
+                else ["- 未启用。"]
+            ),
             "",
             "## 行业覆盖",
             "",
@@ -566,14 +645,18 @@ def write_report(
             "## 输出文件",
             "",
             "- `universe.csv`：本次实验股票池。",
+            "- `universe_exclusions.csv`：股票池清洗剔除记录；仅启用清洗时生成有效内容。",
             "- `membership.csv`：历史指数成分日级标记；仅 Norgate 等成分感知数据源生成有效内容。",
             "- `download_failures.csv`：下载失败或历史不足的股票。",
+            "- `history_buckets.csv`：每只进入 Qlib source CSV 股票的历史长度分桶。",
             "- `fundamental_features.parquet`：日频 PIT 财报与估值特征；仅启用 EDGAR 时生成有效内容。",
             "- `fundamental_failures.csv`：EDGAR 映射、字段或行情缺失记录。",
             "- `edgar_cik_map.csv`：本次股票池 ticker 到 SEC CIK 的映射。",
             "- `industry_features.parquet`：行业内 rank / percentile 特征；仅启用行业特征时生成有效内容。",
             "- `industry_failures.csv`：sector / industry 缺失或 rank 字段缺失记录。",
             "- `predictions.csv`：最新日全部模型分数。",
+            "- `bucketed_predictions.csv`：追加历史分桶、桶内排名和全局排名后的全部模型分数。",
+            "- `selected_top10.csv`：按历史长度桶名额选择后的最终 Top10。",
             "- `report.md`：本报告。",
             "- `resolved_config.yaml`：本次实际使用配置，复盘时优先看它。",
             "- `qlib_source_csv/`：逐股票原始日线 CSV。",
@@ -581,6 +664,12 @@ def write_report(
         ]
     )
     paths["report_md"].write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def read_optional_csv(path: Path) -> pd.DataFrame:
+    if not path.exists():
+        return pd.DataFrame()
+    return pd.read_csv(path)
 
 
 def main() -> None:
@@ -598,6 +687,7 @@ def main() -> None:
         raise SystemExit(f"Data source unavailable: {exc}") from None
     universe = prepared.universe
     failures = prepared.failures
+    build_history_buckets(paths["source_dir"], paths["history_buckets_csv"], config)
     dump_qlib_bin(config, paths)
     try:
         predictions, meta = train_and_predict(universe, config, paths)
@@ -605,7 +695,11 @@ def main() -> None:
         raise SystemExit(f"Fundamental data unavailable: {exc}") from None
     write_report(predictions, meta, failures, config, paths)
     print(f"Qlib model top {config['report']['top_n']}:")
-    preview_columns = [column for column in ["symbol", "name", "score", "market_cap", "sector", "industry"] if column in predictions]
+    preview_columns = [
+        column
+        for column in ["symbol", "history_bucket", "bucket_rank", "global_rank", "name", "score", "market_cap", "sector", "industry"]
+        if column in predictions
+    ]
     print(predictions[preview_columns].head(int(config["report"]["top_n"])).to_string(index=False))
     print(f"Report: {paths['report_md']}")
 
