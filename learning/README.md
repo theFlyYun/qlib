@@ -50,6 +50,7 @@
 
 - [Data Source Upgrade Plan](<05-data-expansion/Data Source Upgrade Plan.md>)
 - [Norgate Data Integration](<05-data-expansion/Norgate Data Integration.md>)
+- [SEC EDGAR Fundamentals Integration](<05-data-expansion/SEC EDGAR Fundamentals Integration.md>)
 - [Data Scope And Sources](<05-data-expansion/Data Scope And Sources.md>)
 - [Financial Valuation Industry Macro News](<05-data-expansion/Financial Valuation Industry Macro News.md>)
 

@@ -58,3 +58,5 @@ tags
 analysis/**/__pycache__/
 analysis/**/qlib_data/
 analysis/**/qlib_source_csv/
+analysis/**/edgar_cache/
+analysis/**/fundamental_features.parquet

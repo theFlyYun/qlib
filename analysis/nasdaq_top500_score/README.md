@@ -35,6 +35,23 @@ analysis/nasdaq_top500_score/configs/norgate_sp500_alpha158_lgbm_1d.yaml
 
 注意：真实 Norgate API 需要 Windows、Norgate Data Updater、有效订阅和 `norgatedata` 包。当前 Mac 环境只验证了适配器和 fixture 测试。
 
+SEC EDGAR 财报增强实验配置：
+
+```text
+analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_lgbm_1d.yaml
+```
+
+运行前需要设置 SEC 要求的 User-Agent：
+
+```bash
+export SEC_EDGAR_USER_AGENT="your-name your-email@example.com"
+
+.venv/bin/python -u analysis/nasdaq_top500_score/run_qlib_alpha158_lightgbm.py \
+  --config analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_lgbm_1d.yaml
+```
+
+这个实验会把 SEC EDGAR 的 10-K / 10-Q 结构化 XBRL 字段按披露日转成日频 PIT 财报和估值特征，再与 Alpha158 合并训练。
+
 以后要改股票池规模、数据回看天数、标签表达式、切分比例、模型参数和 TopN 报告数量，优先改 YAML，不直接改脚本。
 
 ## 输出目录

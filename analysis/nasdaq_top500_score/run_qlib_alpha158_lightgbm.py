@@ -19,8 +19,10 @@ import yaml
 
 try:
     from data_sources import DataSourceUnavailable, create_data_source
+    from fundamentals import build_fundamental_features
 except ImportError:  # pragma: no cover - supports importing this script as a module in tests.
     from analysis.nasdaq_top500_score.data_sources import DataSourceUnavailable, create_data_source
+    from analysis.nasdaq_top500_score.fundamentals import build_fundamental_features
 
 WORKSPACE = Path(__file__).resolve().parents[2]
 ROOT = Path(__file__).resolve().parent
@@ -92,6 +94,12 @@ def validate_config(config: dict[str, Any]) -> None:
         raise ValueError("currently supports model.class: LGBModel")
     if config["split"]["method"] != "ratio":
         raise ValueError("currently supports split.method: ratio")
+    fundamentals = config.get("fundamentals", {})
+    if fundamentals:
+        if fundamentals.get("source") != "sec_edgar":
+            raise ValueError("currently supports fundamentals.source: sec_edgar")
+        if fundamentals.get("enabled") and not fundamentals.get("cache_dir"):
+            raise ValueError("enabled fundamentals require fundamentals.cache_dir")
 
     train_ratio = float(config["split"]["train_ratio"])
     valid_ratio = float(config["split"]["valid_ratio"])
@@ -102,17 +110,24 @@ def validate_config(config: dict[str, Any]) -> None:
 
 def build_paths(config: dict[str, Any]) -> dict[str, Path]:
     output_dir = resolve_path(config["experiment"]["output_dir"])
-    return {
+    paths = {
         "output_dir": output_dir,
         "source_dir": output_dir / "qlib_source_csv",
         "qlib_dir": output_dir / "qlib_data",
         "universe_csv": output_dir / "universe.csv",
         "failures_csv": output_dir / "download_failures.csv",
         "membership_csv": output_dir / "membership.csv",
+        "fundamental_features": output_dir / "fundamental_features.parquet",
+        "fundamental_failures": output_dir / "fundamental_failures.csv",
+        "edgar_cik_map": output_dir / "edgar_cik_map.csv",
         "predictions_csv": output_dir / "predictions.csv",
         "report_md": output_dir / "report.md",
         "resolved_config": output_dir / "resolved_config.yaml",
     }
+    fundamentals = config.get("fundamentals", {})
+    cache_dir = fundamentals.get("cache_dir") if fundamentals else None
+    paths["edgar_cache_dir"] = resolve_path(cache_dir) if cache_dir else output_dir / "edgar_cache"
+    return paths
 
 
 def write_resolved_config(config: dict[str, Any], paths: dict[str, Path]) -> None:
@@ -190,6 +205,7 @@ def train_and_predict(
     from qlib.contrib.model.gbdt import LGBModel
     from qlib.data.dataset import DatasetH
     from qlib.data.dataset.handler import DataHandlerLP
+    from qlib.data.dataset.loader import StaticDataLoader
 
     qlib.init(
         provider_uri=str(paths["qlib_dir"]),
@@ -209,6 +225,24 @@ def train_and_predict(
         freq=config["data"]["freq"],
         label=([config["label"]["expression"]], [config["label"]["name"]]),
     )
+    fundamental_result = None
+    if config.get("fundamentals", {}).get("enabled", False):
+        print("Building SEC EDGAR point-in-time fundamental features...")
+        fundamental_result = build_fundamental_features(universe, config, paths)
+        raw = handler.fetch(
+            selector=slice(segments["all"][0], segments["all"][1]),
+            col_set=["feature", "label"],
+            data_key=DataHandlerLP.DK_R,
+        )
+        combined = combine_alpha_and_fundamental_raw(raw, fundamental_result.features)
+        handler = DataHandlerLP(
+            data_loader=StaticDataLoader(combined),
+            learn_processors=[
+                {"class": "DropnaLabel"},
+                {"class": "CSZScoreNorm", "kwargs": {"fields_group": "label"}},
+            ],
+        )
+
     dataset = DatasetH(
         handler=handler,
         segments={
@@ -253,8 +287,20 @@ def train_and_predict(
         "ic_mean": ic_mean,
         "rank_ic_mean": rank_ic_mean,
         "ic_count": ic_count,
+        "fundamentals_enabled": bool(config.get("fundamentals", {}).get("enabled", False)),
+        "fundamental_feature_count": 0 if fundamental_result is None else int(fundamental_result.features.shape[1]),
+        "fundamental_failure_count": 0 if fundamental_result is None else int(len(fundamental_result.failures)),
+        "cik_mapped_count": 0 if fundamental_result is None else int(len(fundamental_result.cik_map)),
     }
     return merged, meta
+
+
+def combine_alpha_and_fundamental_raw(alpha_raw: pd.DataFrame, fundamental_features: pd.DataFrame) -> pd.DataFrame:
+    alpha_features = alpha_raw["feature"]
+    labels = alpha_raw["label"]
+    aligned_fundamentals = fundamental_features.reindex(alpha_features.index)
+    combined_features = pd.concat([alpha_features, aligned_fundamentals], axis=1)
+    return pd.concat({"feature": combined_features, "label": labels}, axis=1).sort_index()
 
 
 def fmt_money(value: float) -> str:
@@ -314,6 +360,14 @@ def write_report(
         "",
         *format_yaml_block(config["data"]),
         "",
+        "## 财报与估值特征",
+        "",
+        *(
+            format_yaml_block(config.get("fundamentals", {}))
+            if config.get("fundamentals", {}).get("enabled", False)
+            else ["- 未启用。"]
+        ),
+        "",
         "## 标签与特征",
         "",
         f"- 标签名：`{config['label']['name']}`",
@@ -361,6 +415,9 @@ def write_report(
             if not math.isnan(meta["rank_ic_mean"])
             else "- Test 日均 Rank IC：N/A",
             f"- 参与 IC 计算的交易日：{meta['ic_count']}",
+            f"- EDGAR 特征数量：{meta.get('fundamental_feature_count', 0)}",
+            f"- EDGAR CIK 映射数量：{meta.get('cik_mapped_count', 0)}",
+            f"- EDGAR 失败或跳过数量：{meta.get('fundamental_failure_count', 0)}",
             "",
             "IC 可以粗略理解为：每个交易日横截面上，模型预测分数和真实后续收益的相关性。",
             "",
@@ -374,6 +431,9 @@ def write_report(
             "- `universe.csv`：本次实验股票池。",
             "- `membership.csv`：历史指数成分日级标记；仅 Norgate 等成分感知数据源生成有效内容。",
             "- `download_failures.csv`：下载失败或历史不足的股票。",
+            "- `fundamental_features.parquet`：日频 PIT 财报与估值特征；仅启用 EDGAR 时生成有效内容。",
+            "- `fundamental_failures.csv`：EDGAR 映射、字段或行情缺失记录。",
+            "- `edgar_cik_map.csv`：本次股票池 ticker 到 SEC CIK 的映射。",
             "- `predictions.csv`：最新日全部模型分数。",
             "- `report.md`：本报告。",
             "- `resolved_config.yaml`：本次实际使用配置，复盘时优先看它。",
@@ -400,7 +460,10 @@ def main() -> None:
     universe = prepared.universe
     failures = prepared.failures
     dump_qlib_bin(config, paths)
-    predictions, meta = train_and_predict(universe, config, paths)
+    try:
+        predictions, meta = train_and_predict(universe, config, paths)
+    except DataSourceUnavailable as exc:
+        raise SystemExit(f"Fundamental data unavailable: {exc}") from None
     write_report(predictions, meta, failures, config, paths)
     print(f"Qlib model top {config['report']['top_n']}:")
     preview_columns = [column for column in ["symbol", "name", "score", "market_cap", "sector", "industry"] if column in predictions]

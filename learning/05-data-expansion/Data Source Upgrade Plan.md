@@ -34,6 +34,8 @@ data:
 
 当前已开始接入 Norgate。详细记录见 [[Norgate Data Integration]]。
 
+财报与估值第一版使用 SEC EDGAR。详细记录见 [[SEC EDGAR Fundamentals Integration]]。
+
 ## 数据分层
 
 ### 1. 价格行情

@@ -75,6 +75,17 @@
 
 详细笔记：[[Norgate Data Integration]]
 
+## 2026-05-17 SEC EDGAR 财报特征接入
+
+- 学习主题：把 SEC EDGAR 10-K / 10-Q 结构化财报转成模型输入。
+- 策略假设：Alpha158 只看价格成交量，加入 PIT 财报、盈利质量、成长、现金流、负债和估值特征后，可能提供基本面增量信息。
+- 当前动作：新增 `fundamentals.source: sec_edgar`，按披露日生成日频 `edgar_` 特征，再与 Alpha158 合并训练。
+- 核心理解：财报不能按财报期末日生效，必须按 `filed` / `acceptanceDateTime` 生效，避免未来函数。
+- 当前限制：第一版不做 NLP，不处理 8-K，只做结构化 XBRL 字段；TTM 和同比口径仍是学习用基线。
+- 下一步：设置 `SEC_EDGAR_USER_AGENT` 后先做 5 只股票 smoke test，再扩大到当前 Nasdaq 股票池。
+
+详细笔记：[[SEC EDGAR Fundamentals Integration]]
+
 ## 复盘原则
 
 - 先写假设，再看结果。

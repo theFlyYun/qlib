@@ -364,3 +364,90 @@ learning/05-data-expansion/Data Scope And Sources.md
 learning/README.md
 learning/00-start-here/Qlib Quant Learning Index.md
 ```
+
+## 2026-05-17 阶段 E.2：SEC EDGAR 财报与估值特征
+
+目标：
+
+把 SEC EDGAR 的 10-K / 10-Q 结构化 XBRL 财报转成日频 PIT 特征，并与 Alpha158 合并训练。
+
+为什么要做：
+
+Alpha158 只描述价格和成交量，不能看到公司收入、利润、现金流、资产负债和估值。EDGAR 特征用于验证基本面信息是否能在价格技术面 baseline 之外提供增量。
+
+输入数据：
+
+```text
+SEC company_tickers_exchange.json
+SEC submissions/CIK##########.json
+SEC companyfacts/CIK##########.json
+当前 Nasdaq/Qlib 逐股票日线 close
+```
+
+核心概念：
+
+```text
+CIK
+accession
+10-K / 10-Q
+XBRL us-gaap tag
+PIT 披露日对齐
+财报字段
+估值因子
+```
+
+实验动作：
+
+```text
+新增 fundamentals 适配层
+新增 SEC EDGAR client 和 feature builder
+新增 nasdaq_alpha158_edgar_lgbm_1d.yaml
+训练时生成 Alpha158 后合并 edgar_ 财报特征
+输出 fundamental_features.parquet、fundamental_failures.csv、edgar_cik_map.csv
+新增 fake SEC 单元测试验证 CIK 映射、10-K/10-Q 过滤、PIT 对齐、缺价格、缺字段
+更新学习文档说明财报如何变成模型特征
+```
+
+评价指标：
+
+```text
+py_compile 通过
+EDGAR fake 单元测试通过
+默认 Alpha158-only 配置仍可解析
+EDGAR 配置可解析
+Markdown 链接和 wikilinks 无断链
+EDGAR cache、parquet、Qlib bin 和大型中间产物不进入 Git
+```
+
+结果解读：
+
+本阶段完成的是 EDGAR 第一版工程接入和学习文档。因为当前环境没有设置 `SEC_EDGAR_USER_AGENT`，没有对 SEC 官方接口做真实全量拉取。fake 测试已经验证披露日前不可见、披露日后 forward fill、估值需要价格、缺失问题进入 failure 文件。
+
+遗留问题：
+
+```text
+尚未真实跑 5 只股票 smoke test
+尚未扩展到 Nasdaq 500 股票池真实训练
+TTM 和同比仍是学习基线，后续需更严谨处理季度累计值和重述
+尚未接入 8-K、Form 4、行业分类和文本特征
+尚未比较 Alpha158-only 与 Alpha158+EDGAR 的 IC / Rank IC
+```
+
+下一阶段准备：
+
+先设置 SEC 要求的 User-Agent，真实跑 5 只股票 smoke test，检查字段覆盖率和 failure 原因。通过后再扩展到当前 Nasdaq 股票池，并与 Alpha158 baseline 对比。
+
+产出文件：
+
+```text
+analysis/nasdaq_top500_score/fundamentals/
+analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_lgbm_1d.yaml
+analysis/nasdaq_top500_score/run_qlib_alpha158_lightgbm.py
+analysis/nasdaq_top500_score/README.md
+tests/analysis/test_sec_edgar_fundamentals.py
+learning/05-data-expansion/SEC EDGAR Fundamentals Integration.md
+learning/05-data-expansion/Financial Valuation Industry Macro News.md
+learning/05-data-expansion/Data Source Upgrade Plan.md
+learning/99-logs/Qlib Learning Log.md
+learning/99-logs/Stage Completion Records.md
+```
