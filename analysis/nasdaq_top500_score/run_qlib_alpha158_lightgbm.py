@@ -22,12 +22,12 @@ try:
     from data_sources import DataSourceUnavailable, create_data_source
     from fundamentals import build_fundamental_features
     from industry import build_industry_feature_frame
-    from selection import apply_bucket_ranking, build_history_buckets
+    from selection import apply_bucket_ranking, apply_liquidity_filter, build_history_buckets
 except ImportError:  # pragma: no cover - supports importing this script as a module in tests.
     from analysis.nasdaq_top500_score.data_sources import DataSourceUnavailable, create_data_source
     from analysis.nasdaq_top500_score.fundamentals import build_fundamental_features
     from analysis.nasdaq_top500_score.industry import build_industry_feature_frame
-    from analysis.nasdaq_top500_score.selection import apply_bucket_ranking, build_history_buckets
+    from analysis.nasdaq_top500_score.selection import apply_bucket_ranking, apply_liquidity_filter, build_history_buckets
 
 WORKSPACE = Path(__file__).resolve().parents[2]
 ROOT = Path(__file__).resolve().parent
@@ -133,6 +133,7 @@ def validate_config(config: dict[str, Any]) -> None:
         validate_date_split(config["split"])
     validate_bucket_ranking(config)
     validate_industry_constraints(config)
+    validate_liquidity_filter(config)
 
 
 def validate_bucket_ranking(config: dict[str, Any]) -> None:
@@ -162,6 +163,25 @@ def validate_industry_constraints(config: dict[str, Any]) -> None:
             raise ValueError(f"enabled industry_constraints requires {key}")
         if int(constraints[key]) <= 0:
             raise ValueError(f"industry_constraints.{key} must be positive")
+
+
+def validate_liquidity_filter(config: dict[str, Any]) -> None:
+    liquidity = config.get("liquidity_filter", {})
+    if not liquidity or not liquidity.get("enabled", False):
+        return
+    positive_keys = [
+        "min_latest_close",
+        "min_avg_dollar_volume_20d",
+        "min_median_dollar_volume_60d",
+        "min_recent_trading_days_60d",
+    ]
+    for key in positive_keys:
+        if key in liquidity and float(liquidity[key]) < 0:
+            raise ValueError(f"liquidity_filter.{key} must be non-negative")
+    if "max_zero_volume_ratio_60d" in liquidity:
+        value = float(liquidity["max_zero_volume_ratio_60d"])
+        if value < 0 or value > 1:
+            raise ValueError("liquidity_filter.max_zero_volume_ratio_60d must be between 0 and 1")
 
 
 def date_value(value: Any) -> pd.Timestamp:
@@ -201,6 +221,8 @@ def build_paths(config: dict[str, Any]) -> dict[str, Path]:
         "failures_csv": output_dir / "download_failures.csv",
         "membership_csv": output_dir / "membership.csv",
         "history_buckets_csv": output_dir / "history_buckets.csv",
+        "liquidity_profile_csv": output_dir / "liquidity_profile.csv",
+        "liquidity_exclusions_csv": output_dir / "liquidity_exclusions.csv",
         "fundamental_features": output_dir / "fundamental_features.parquet",
         "fundamental_failures": output_dir / "fundamental_failures.csv",
         "edgar_cik_map": output_dir / "edgar_cik_map.csv",
@@ -499,9 +521,15 @@ def write_report(
     top_predictions = predictions.head(top_n)
     model_kwargs = config["model"]["kwargs"]
     universe_exclusions = read_optional_csv(paths["universe_exclusions_csv"])
+    liquidity_exclusions = read_optional_csv(paths["liquidity_exclusions_csv"])
     exclusion_reason_counts = (
         universe_exclusions["exclusion_reason"].value_counts().to_dict()
         if "exclusion_reason" in universe_exclusions and not universe_exclusions.empty
+        else {}
+    )
+    liquidity_exclusion_reason_counts = (
+        liquidity_exclusions["exclusion_reason"].value_counts().to_dict()
+        if "exclusion_reason" in liquidity_exclusions and not liquidity_exclusions.empty
         else {}
     )
     lines = [
@@ -625,6 +653,22 @@ def write_report(
             "",
             "IC 可以粗略理解为：每个交易日横截面上，模型预测分数和真实后续收益的相关性。",
             "",
+            "## 流动性过滤",
+            "",
+            *(
+                [
+                    "- 流动性过滤：已启用。",
+                    "- 过滤规则：",
+                    *format_yaml_block(meta.get("liquidity_filter", {})),
+                    f"- 生成流动性画像股票数：{meta.get('liquidity_profile_count', 0)}",
+                    f"- 流动性剔除数量：{meta.get('liquidity_exclusion_count', 0)}",
+                    "- 流动性剔除原因：",
+                    *format_yaml_block(liquidity_exclusion_reason_counts),
+                ]
+                if meta.get("liquidity_filter_enabled", False)
+                else ["- 未启用。"]
+            ),
+            "",
             "## 股票池清洗与历史分桶",
             "",
             *(
@@ -676,6 +720,8 @@ def write_report(
             "- `universe_exclusions.csv`：股票池清洗剔除记录；仅启用清洗时生成有效内容。",
             "- `membership.csv`：历史指数成分日级标记；仅 Norgate 等成分感知数据源生成有效内容。",
             "- `download_failures.csv`：下载失败或历史不足的股票。",
+            "- `liquidity_profile.csv`：每只已下载股票的成交额、价格和零成交画像。",
+            "- `liquidity_exclusions.csv`：流动性过滤剔除记录。",
             "- `history_buckets.csv`：每只进入 Qlib source CSV 股票的历史长度分桶。",
             "- `fundamental_features.parquet`：日频 PIT 财报与估值特征；仅启用 EDGAR 时生成有效内容。",
             "- `fundamental_failures.csv`：EDGAR 映射、字段或行情缺失记录。",
@@ -715,10 +761,12 @@ def main() -> None:
         raise SystemExit(f"Data source unavailable: {exc}") from None
     universe = prepared.universe
     failures = prepared.failures
+    universe, liquidity_meta = apply_liquidity_filter(universe, paths["source_dir"], config, paths)
     build_history_buckets(paths["source_dir"], paths["history_buckets_csv"], config)
     dump_qlib_bin(config, paths)
     try:
         predictions, meta = train_and_predict(universe, config, paths)
+        meta.update(liquidity_meta)
     except DataSourceUnavailable as exc:
         raise SystemExit(f"Fundamental data unavailable: {exc}") from None
     write_report(predictions, meta, failures, config, paths)

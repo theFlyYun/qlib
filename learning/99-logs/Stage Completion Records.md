@@ -1068,3 +1068,131 @@ learning/05-data-expansion/Stock Pool Cleaning And History Buckets.md
 learning/99-logs/Qlib Learning Log.md
 learning/99-logs/Stage Completion Records.md
 ```
+
+## 2026-05-17 阶段 D.3：流动性过滤
+
+目标：
+
+让低价、低成交额或交易不连续的股票不进入本次 Qlib 训练、预测和最终 Top10。
+
+为什么要做：
+
+模型分数只说明模型认为某只股票未来收益可能更高，但它不自动考虑买卖价差、成交冲击和交易容量。低流动性股票即使分数高，也可能无法以合理成本成交。
+
+输入数据：
+
+```text
+股票池：当前 Nasdaq 清洗后市值前 500
+固定行情窗口：2016-05-17 到 2026-05-17
+流动性来源：已下载日线 OHLCV
+财报来源：SEC EDGAR 10-K / 10-Q / companyfacts
+标签：未来 1 日收益
+模型：Alpha158 + EDGAR + LightGBM
+最终选择：流动性过滤 + 历史长度桶名额 + 行业名额约束
+```
+
+核心概念：
+
+```text
+日成交额
+近 20 日平均成交额
+近 60 日成交额中位数
+零成交比例
+价格下限
+可交易股票池
+```
+
+实验动作：
+
+```text
+新增 liquidity_filter 配置
+新增 liquidity.py 适配层
+输出 liquidity_profile.csv
+输出 liquidity_exclusions.csv
+流动性不达标股票从 Qlib source CSV 中移除
+报告写入过滤规则、剔除数量和剔除原因
+新增流动性过滤单元测试
+复跑 clean_bucket_top10 配置
+```
+
+评价指标：
+
+```text
+py_compile 通过
+相关单元测试通过
+所有 YAML 配置可解析
+真实配置运行成功
+生成 liquidity_profile.csv 和 liquidity_exclusions.csv
+最终 Top10 仍符合 4/3/2/1 桶名额
+最终 Top10 仍满足 sector<=4、industry<=2
+大型 runs 输出继续不进入 Git
+```
+
+结果解读：
+
+```text
+生成流动性画像股票数：482
+流动性剔除数量：4
+进入 Qlib 数据股票数：478
+Test 日均 IC：0.002960
+Test 日均 Rank IC：0.006525
+参与 IC 计算交易日：593
+```
+
+剔除股票：
+
+```text
+LBTYB：近 20 日平均成交额低于 500 万美元
+MAAS：近 60 日成交额中位数低于 200 万美元
+RGC：近 20 日平均成交额低于 500 万美元
+VFS：近 20 日平均成交额低于 500 万美元
+```
+
+最终 Top10：
+
+```text
+full_10y：AXTI, AAOI, CHTR, LBRDK
+5_10y：NBIS, GTX, RKLB
+2_5y：HUT, XMTR
+lt_2y：FLY
+```
+
+最终 sector 分布：
+
+```text
+Technology：3
+Telecommunications：2
+Industrials：2
+Finance：1
+Consumer Discretionary：1
+Real Estate：1
+```
+
+遗留问题：
+
+```text
+当前成交额使用 vwap 近似值，不是真实交易所 VWAP
+没有 bid-ask spread 和订单簿深度
+没有按组合规模估算策略容量
+没有把流动性作为模型特征，只作为股票池过滤
+尚未使用专业证券主数据
+尚未做未来 5 日标签和成本后回测
+```
+
+下一阶段准备：
+
+进入第 3 条：证券主数据升级。目标是减少仅靠 Nasdaq public 的 `symbol` 和 `name` 文本规则判断证券类型的误差，补充更稳定的证券类型、上市状态、ADR/ADS、share class 和 primary listing 口径。
+
+产出文件：
+
+```text
+analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_lgbm_10y_clean_bucket_top10.yaml
+analysis/nasdaq_top500_score/run_qlib_alpha158_lightgbm.py
+analysis/nasdaq_top500_score/selection/liquidity.py
+analysis/nasdaq_top500_score/selection/__init__.py
+tests/analysis/test_stock_pool_selection.py
+learning/05-data-expansion/Liquidity Filtering.md
+learning/05-data-expansion/Stock Pool Cleaning And History Buckets.md
+learning/99-logs/Qlib Learning Log.md
+learning/99-logs/Stage Completion Records.md
+```

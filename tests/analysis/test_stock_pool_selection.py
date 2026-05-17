@@ -6,6 +6,7 @@ import pandas as pd
 
 from analysis.nasdaq_top500_score.selection import (
     apply_bucket_ranking,
+    apply_liquidity_filter,
     build_history_buckets,
     clean_stock_universe,
     select_bucketed_top,
@@ -56,6 +57,62 @@ def test_history_bucket_boundaries_are_inclusive(tmp_path: Path) -> None:
     assert buckets.loc["MID", "history_bucket"] == "5_10y"
     assert buckets.loc["SHORT", "history_bucket"] == "2_5y"
     assert buckets.loc["NEW", "history_bucket"] == "lt_2y"
+
+
+def test_liquidity_filter_removes_low_dollar_volume_and_low_price_symbols(tmp_path: Path) -> None:
+    source_dir = tmp_path / "qlib_source_csv"
+    source_dir.mkdir()
+    dates = pd.bdate_range("2026-01-01", periods=80).strftime("%Y-%m-%d")
+
+    def write_symbol(symbol: str, close: float, volume: int) -> None:
+        pd.DataFrame(
+            {
+                "date": dates,
+                "symbol": symbol,
+                "open": close,
+                "high": close,
+                "low": close,
+                "close": close,
+                "vwap": close,
+                "volume": volume,
+            }
+        ).to_csv(source_dir / f"{symbol}.csv", index=False)
+
+    write_symbol("LIQ", 20, 1_000_000)
+    write_symbol("THIN", 2, 10_000)
+    write_symbol("PENNY", 0.5, 10_000_000)
+    universe = pd.DataFrame(
+        [
+            {"symbol": "LIQ", "name": "Liquid Common Stock"},
+            {"symbol": "THIN", "name": "Thin Common Stock"},
+            {"symbol": "PENNY", "name": "Penny Common Stock"},
+        ]
+    )
+    config = {
+        "liquidity_filter": {
+            "enabled": True,
+            "min_latest_close": 1.0,
+            "min_avg_dollar_volume_20d": 5_000_000,
+            "min_median_dollar_volume_60d": 2_000_000,
+            "max_zero_volume_ratio_60d": 0.05,
+            "min_recent_trading_days_60d": 40,
+        }
+    }
+    paths = {
+        "universe_csv": tmp_path / "universe.csv",
+        "liquidity_profile_csv": tmp_path / "liquidity_profile.csv",
+        "liquidity_exclusions_csv": tmp_path / "liquidity_exclusions.csv",
+    }
+
+    filtered, meta = apply_liquidity_filter(universe, source_dir, config, paths)
+
+    assert filtered["symbol"].tolist() == ["LIQ"]
+    assert (source_dir / "LIQ.csv").exists()
+    assert not (source_dir / "THIN.csv").exists()
+    assert not (source_dir / "PENNY.csv").exists()
+    assert meta["liquidity_exclusion_count"] == 2
+    exclusions = pd.read_csv(paths["liquidity_exclusions_csv"])
+    assert set(exclusions["symbol"]) == {"THIN", "PENNY"}
 
 
 def test_bucketed_top10_respects_quotas_and_keeps_one_lt_2y() -> None:

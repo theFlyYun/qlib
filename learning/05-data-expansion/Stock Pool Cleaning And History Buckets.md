@@ -124,13 +124,13 @@ name:debenture：1
 name:bond：1
 ```
 
-最新日可预测股票分桶：
+流动性过滤后，最新日可预测股票分桶：
 
 ```text
 full_10y：335
 5_10y：86
-2_5y：48
-lt_2y：13
+2_5y：45
+lt_2y：12
 ```
 
 最终 Top10 分桶结果：
@@ -145,50 +145,50 @@ lt_2y：1
 本次 Top10：
 
 ```text
-AMD
-SIMO
+AXTI
+AAOI
+CHTR
+LBRDK
+FLY
 NBIS
-PLUG
-QCOM
-LUNR
+HUT
 GTX
-LQDA
-RGC
-SIRI
+XMTR
+RKLB
 ```
 
 最终 Top10 sector 分布：
 
 ```text
-Technology：4
-Consumer Discretionary：2
-Health Care：2
-Energy：1
-Industrials：1
+Technology：3
+Telecommunications：2
+Industrials：2
+Finance：1
+Consumer Discretionary：1
+Real Estate：1
 ```
 
 最终 Top10 industry 分布：
 
 ```text
 Semiconductors：2
-Industrial Machinery/Components：2
+Cable & Other Pay Television Services：2
+Military/Government/Technical：2
 Computer Software: Programming Data Processing：1
-Radio And Television Broadcasting And Communications Equipment：1
+Finance: Consumer Services：1
 Auto Parts:O.E.M.：1
-Biotechnology: Pharmaceutical Preparations：1
-Medicinal Chemicals and Botanical Products：1
-Broadcasting：1
+Real Estate：1
 ```
 
 ## 如何解读
 
 桶内排名不是改变分数，而是改变候选组合的名额结构。
 
-比如 `SIRI` 属于 `lt_2y` 桶，它能进入最终 Top10，不是因为它和完整 10 年股票直接争到前 10，而是因为少于 2 年桶被允许保留 1 个观察名额。
+比如 `FLY` 属于 `lt_2y` 桶，它能进入最终 Top10，不是因为它和完整 10 年股票直接争到前 10，而是因为少于 2 年桶被允许保留 1 个观察名额。
 
 这让最终列表更像一个受控研究样本，而不是无约束模型榜单。
 
-行业名额约束进一步控制了行业集中度。上一版 Top10 里 Technology 有 6 只；加入约束后，Technology 被限制为 4 只，Semiconductors 被限制为 2 只。
+行业名额约束进一步控制了行业集中度。上一版 Top10 里 Technology 曾经有 6 只；加入约束和流动性过滤后，Technology 为 3 只，Semiconductors 为 2 只。
 
 ## 遗留问题
 
@@ -198,7 +198,7 @@ Broadcasting：1
 
 ```text
 ADR/ADS 是否单独分组
-低流动性过滤
+更细的流动性分层
 更可靠的证券主数据
 未来 5 日标签
 成本后回测
@@ -208,6 +208,7 @@ ADR/ADS 是否单独分组
 
 [[Short History Evaluation And EDGAR Full Run]]
 [[SEC EDGAR Fundamentals Integration]]
+[[Liquidity Filtering]]
 [[Industry Features And Relative Ranking]]
 [[TopK Strategy]]
 [[Stage Completion Records]]

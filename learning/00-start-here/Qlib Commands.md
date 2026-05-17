@@ -98,7 +98,7 @@ export SEC_EDGAR_USER_AGENT="Your Name your-email@example.com"
   --config analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_lgbm_10y_eval_all.yaml
 ```
 
-运行固定 10 年窗口、股票池清洗、历史长度分桶、桶内 Top10 和行业名额约束的 EDGAR 实验：
+运行固定 10 年窗口、股票池清洗、流动性过滤、历史长度分桶、桶内 Top10 和行业名额约束的 EDGAR 实验：
 
 ```bash
 export SEC_EDGAR_USER_AGENT="Your Name your-email@example.com"
@@ -138,7 +138,7 @@ print(features.index.get_level_values("instrument").nunique())
 PY
 ```
 
-复盘清洗 + 分桶 + 行业约束 Top10 实验：
+复盘清洗 + 流动性过滤 + 分桶 + 行业约束 Top10 实验：
 
 ```bash
 sed -n '1,260p' analysis/nasdaq_top500_score/runs/nasdaq_alpha158_edgar_lgbm_10y_clean_bucket_top10/report.md
@@ -149,6 +149,7 @@ run = "analysis/nasdaq_top500_score/runs/nasdaq_alpha158_edgar_lgbm_10y_clean_bu
 cols = ["selected_rank", "symbol", "history_bucket", "bucket_rank", "global_rank", "score"]
 print(pd.read_csv(f"{run}/selected_top10.csv").loc[:, cols])
 print(pd.read_csv(f"{run}/history_buckets.csv")["history_bucket"].value_counts())
+print(pd.read_csv(f"{run}/liquidity_exclusions.csv")["exclusion_reason"].value_counts())
 PY
 ```
 
