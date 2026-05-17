@@ -624,3 +624,98 @@ learning/05-data-expansion/Fixed Window And Real EDGAR Runbook.md
 learning/99-logs/Qlib Learning Log.md
 learning/99-logs/Stage Completion Records.md
 ```
+
+## 2026-05-17 阶段 E.5：Nasdaq 当前前 500 市值 10 年数据
+
+目标：
+
+把固定训练窗口调整为当前 Nasdaq public 可落地的 10 年窗口，并获取当前 Nasdaq 市值前 500 股票的日线数据。
+
+为什么要做：
+
+真实试跑发现 Nasdaq public 对 15 年请求只返回约 10 年行情。如果继续坚持 15 年，配置看起来固定，但底层行情数据并不完整。先把窗口改成可稳定落地的 10 年，才能继续做 EDGAR、行业特征和标签对比。
+
+输入数据：
+
+```text
+Nasdaq 当前市值前 500
+固定行情窗口：2016-05-17 到 2026-05-17
+字段：date, symbol, open, high, low, close, vwap, volume
+```
+
+核心概念：
+
+```text
+固定 10 年窗口
+当前静态股票池
+历史不足过滤
+Qlib source CSV
+Qlib bin
+```
+
+实验动作：
+
+```text
+新增 nasdaq_alpha158_lgbm_10y_fixed.yaml
+Nasdaq public 下载后按 start_date / end_date 二次过滤
+获取当前 Nasdaq 市值前 500 的 10 年日线
+转换为 Qlib bin 数据
+训练 Alpha158 + LightGBM baseline
+生成 report.md、predictions.csv、download_failures.csv
+```
+
+评价指标：
+
+```text
+配置可解析
+py_compile 通过
+固定窗口测试通过
+Qlib 数据日历固定在 2016-05-17 到 2026-05-15
+大型 CSV、Qlib bin 和 runs 输出不进入 Git
+```
+
+结果解读：
+
+本次下载结果：
+
+```text
+股票池：500
+成功进入 Qlib source CSV：319
+失败或历史不足：181
+Qlib 交易日：2514
+实际开始日：2016-05-17
+实际结束日：2026-05-15
+最新日可预测股票数：318
+```
+
+模型验证结果：
+
+```text
+Test 日均 IC：0.000299
+Test 日均 Rank IC：-0.003188
+```
+
+这说明 10 年数据链路已经可用，但 Alpha158-only baseline 仍没有明显预测能力。
+
+遗留问题：
+
+```text
+181 只当前前 500 股票没有满足 2400 行历史，主要是新上市、重组或特殊证券
+股票池仍是当前静态前 500，不是历史动态成分
+不含退市股票，仍有幸存者偏差
+尚未接入 EDGAR 到 10 年 500 股票实验
+尚未做未来 5 日标签和 TopK 成本后回测
+```
+
+下一阶段准备：
+
+使用同一 10 年窗口扩大 EDGAR 实验：先从 50 只股票开始，检查 CIK 映射、字段缺失和请求稳定性，再扩展到 100/500 只。
+
+产出文件：
+
+```text
+analysis/nasdaq_top500_score/configs/nasdaq_alpha158_lgbm_10y_fixed.yaml
+analysis/nasdaq_top500_score/runs/nasdaq_alpha158_lgbm_10y_fixed/
+learning/99-logs/Qlib Learning Log.md
+learning/99-logs/Stage Completion Records.md
+```

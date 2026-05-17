@@ -33,6 +33,19 @@ analysis/nasdaq_top500_score/configs/nasdaq_alpha158_lgbm_15y_fixed.yaml
   --config analysis/nasdaq_top500_score/configs/nasdaq_alpha158_lgbm_15y_fixed.yaml
 ```
 
+固定 10 年窗口 baseline 配置：
+
+```text
+analysis/nasdaq_top500_score/configs/nasdaq_alpha158_lgbm_10y_fixed.yaml
+```
+
+这个配置把行情窗口固定为 `2016-05-17` 到 `2026-05-17`，使用当前 Nasdaq 市值前 500 股票池，并要求单股票至少有 2400 行日线数据：
+
+```bash
+.venv/bin/python -u analysis/nasdaq_top500_score/run_qlib_alpha158_lightgbm.py \
+  --config analysis/nasdaq_top500_score/configs/nasdaq_alpha158_lgbm_10y_fixed.yaml
+```
+
 Norgate S&P 500 历史成分实验配置：
 
 ```text

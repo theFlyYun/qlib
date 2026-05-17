@@ -1,0 +1,55 @@
+experiment:
+  name: nasdaq_alpha158_lgbm_10y_fixed
+  output_dir: analysis/nasdaq_top500_score/runs/nasdaq_alpha158_lgbm_10y_fixed
+
+universe:
+  exchange: NASDAQ
+  top_n_by_market_cap: 500
+  exclude_etf: true
+  exclude_test_issue: true
+  min_history_rows: 2400
+
+data:
+  source: nasdaq_public
+  start_date: "2016-05-17"
+  end_date: "2026-05-17"
+  freq: day
+  vwap_method: ohlc_mean
+
+label:
+  expression: Ref($close, -2) / Ref($close, -1) - 1
+  name: LABEL0
+
+features:
+  handler: Alpha158
+  instruments: all
+
+split:
+  method: date
+  warmup_days: 60
+  train:
+    start: "2016-05-17"
+    end: "2021-12-31"
+  valid:
+    start: "2022-01-01"
+    end: "2023-12-31"
+  test:
+    start: "2024-01-01"
+    end: "2026-05-17"
+
+model:
+  class: LGBModel
+  kwargs:
+    loss: mse
+    learning_rate: 0.05
+    num_leaves: 64
+    max_depth: 8
+    n_estimators: 300
+    subsample: 0.85
+    colsample_bytree: 0.85
+    lambda_l1: 1.0
+    lambda_l2: 10.0
+    num_threads: 8
+
+report:
+  top_n: 5

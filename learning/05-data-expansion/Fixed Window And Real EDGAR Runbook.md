@@ -33,7 +33,7 @@ data:
 
 ## 当前固定切分
 
-第一版固定切分是：
+15 年固定切分是：
 
 ```text
 数据窗口：2011-05-17 到 2026-05-17
@@ -44,6 +44,18 @@ warmup：60 个交易日
 ```
 
 注意：`2026-05-17` 是周日。真实日线数据最后一个交易日通常会落在前一个交易日，例如 `2026-05-15`。配置仍然固定写 `2026-05-17`，实际训练时会选择数据中可用的最后交易日。
+
+真实试跑后发现，Nasdaq public 对 15 年窗口只能返回约 10 年日线。因此当前可落地 baseline 改为：
+
+```text
+数据窗口：2016-05-17 到 2026-05-17
+训练集：2016-05-17 到 2021-12-31
+验证集：2022-01-01 到 2023-12-31
+测试集：2024-01-01 到 2026-05-17
+warmup：60 个交易日
+```
+
+这个 10 年窗口不是更严谨的数据源，只是当前 Nasdaq public 学习数据源下更可执行的窗口。
 
 ## 固定窗口 baseline 配置
 
@@ -58,6 +70,19 @@ analysis/nasdaq_top500_score/configs/nasdaq_alpha158_lgbm_15y_fixed.yaml
 ```bash
 .venv/bin/python -u analysis/nasdaq_top500_score/run_qlib_alpha158_lightgbm.py \
   --config analysis/nasdaq_top500_score/configs/nasdaq_alpha158_lgbm_15y_fixed.yaml
+```
+
+当前推荐先运行 10 年固定窗口：
+
+```text
+analysis/nasdaq_top500_score/configs/nasdaq_alpha158_lgbm_10y_fixed.yaml
+```
+
+运行命令：
+
+```bash
+.venv/bin/python -u analysis/nasdaq_top500_score/run_qlib_alpha158_lightgbm.py \
+  --config analysis/nasdaq_top500_score/configs/nasdaq_alpha158_lgbm_10y_fixed.yaml
 ```
 
 当前仍使用 Nasdaq public 数据源。它适合学习固定窗口流程，但仍有局限：

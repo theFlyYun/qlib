@@ -111,6 +111,8 @@ class NasdaqPublicDataSource:
 
     def download_symbol_history(self, symbol: str) -> tuple[str, int, str | None]:
         from_date, to_date = nasdaq_history_window(self.config["data"])
+        start_ts = pd.Timestamp(from_date)
+        end_ts = pd.Timestamp(to_date)
         params = {
             "assetclass": "stocks",
             "fromdate": from_date,
@@ -149,11 +151,13 @@ class NasdaqPublicDataSource:
                 }
             )
 
-        min_history_rows = int(self.config["universe"]["min_history_rows"])
-        if len(parsed) < min_history_rows:
-            return symbol, len(parsed), f"history < {min_history_rows} rows"
-
         frame = pd.DataFrame(parsed).sort_values("date")
+        dates = pd.to_datetime(frame["date"])
+        frame = frame[(dates >= start_ts) & (dates <= end_ts)]
+        min_history_rows = int(self.config["universe"]["min_history_rows"])
+        if len(frame) < min_history_rows:
+            return symbol, len(frame), f"history < {min_history_rows} rows"
+
         frame.to_csv(self.paths["source_dir"] / f"{symbol}.csv", index=False)
         return symbol, len(frame), None
 

@@ -75,6 +75,13 @@ python examples/workflow_by_code.py
   --config analysis/nasdaq_top500_score/configs/nasdaq_alpha158_lgbm_15y_fixed.yaml
 ```
 
+运行固定 10 年窗口 baseline：
+
+```bash
+.venv/bin/python -u analysis/nasdaq_top500_score/run_qlib_alpha158_lightgbm.py \
+  --config analysis/nasdaq_top500_score/configs/nasdaq_alpha158_lgbm_10y_fixed.yaml
+```
+
 运行真实 EDGAR smoke test 前先设置 User-Agent：
 
 ```bash
