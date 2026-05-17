@@ -52,6 +52,23 @@ export SEC_EDGAR_USER_AGENT="your-name your-email@example.com"
 
 这个实验会把 SEC EDGAR 的 10-K / 10-Q 结构化 XBRL 字段按披露日转成日频 PIT 财报和估值特征，再与 Alpha158 合并训练。
 
+行业相对特征实验配置：
+
+```text
+analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_industry_lgbm_1d.yaml
+```
+
+运行入口：
+
+```bash
+export SEC_EDGAR_USER_AGENT="your-name your-email@example.com"
+
+.venv/bin/python -u analysis/nasdaq_top500_score/run_qlib_alpha158_lightgbm.py \
+  --config analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_industry_lgbm_1d.yaml
+```
+
+这个实验会先生成 Alpha158 和 EDGAR 财报估值特征，再用 `universe.csv` 里的 `sector` / `industry` 生成行业内 rank / percentile 特征。第一版行业分类来自当前 Nasdaq public snapshot，不是历史 PIT 行业分类。
+
 以后要改股票池规模、数据回看天数、标签表达式、切分比例、模型参数和 TopN 报告数量，优先改 YAML，不直接改脚本。
 
 ## 输出目录
@@ -75,6 +92,10 @@ runs/nasdaq_alpha158_lgbm_1d/qlib_data/
 ```
 
 Norgate 配置会额外生成 `membership.csv`，记录每只股票在每个交易日是否属于历史指数成分。
+
+EDGAR 配置会额外生成 `fundamental_features.parquet`、`fundamental_failures.csv` 和 `edgar_cik_map.csv`。
+
+行业配置会额外生成 `industry_features.parquet` 和 `industry_failures.csv`。
 
 `resolved_config.yaml` 是复盘入口：它记录这次实验实际使用的股票池、标签、特征、切分和模型参数。
 

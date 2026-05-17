@@ -451,3 +451,91 @@ learning/05-data-expansion/Data Source Upgrade Plan.md
 learning/99-logs/Qlib Learning Log.md
 learning/99-logs/Stage Completion Records.md
 ```
+
+## 2026-05-17 阶段 E.3：行业特征与行业内相对因子
+
+目标：
+
+把 EDGAR 财报和估值特征从“全市场直接比较”升级为“行业内比较”，让模型看到同业相对位置。
+
+为什么要做：
+
+估值、毛利率、ROE、成长和负债率都有强行业属性。如果不同行业直接比较，模型可能学到行业差异，而不是公司在同行里的强弱。
+
+输入数据：
+
+```text
+当前 Nasdaq public 股票池 universe.csv
+字段：symbol、sector、industry
+EDGAR 生成的 edgar_ 财报与估值特征
+Alpha158 价格成交量特征
+```
+
+核心概念：
+
+```text
+行业内 rank
+行业内 percentile
+sector fallback
+行业相对特征
+行业中性化
+PIT 行业分类限制
+```
+
+实验动作：
+
+```text
+新增 industry 特征层
+新增 nasdaq_alpha158_edgar_industry_lgbm_1d.yaml
+对 EDGAR 特征生成行业内 rank / percentile 和 sector percentile
+行业样本过少时回退到 sector
+输出 industry_features.parquet 和 industry_failures.csv
+报告新增行业覆盖、TopN sector 分布和 TopN industry 分布
+新增单元测试验证行业映射、行业内百分位、sector fallback、缺失分类记录
+新增学习文档解释行业内比较和行业中性化区别
+```
+
+评价指标：
+
+```text
+py_compile 通过
+行业特征单元测试通过
+EDGAR 和 Norgate 既有测试仍通过
+新配置可解析
+Markdown 链接和 wikilinks 无断链
+industry_features.parquet 等大型中间产物不进入 Git
+```
+
+结果解读：
+
+本阶段完成的是模型输入层升级：Alpha158 仍提供价格成交量信号，EDGAR 提供财报估值信号，行业相对特征提供“同行内相对位置”。这一步还不是组合层面的行业中性策略。
+
+第一版行业分类来自当前 Nasdaq public snapshot，不是历史 PIT 行业分类。因此它适合学习和实验，不适合作为严谨回测的最终行业口径。
+
+遗留问题：
+
+```text
+尚未真实运行 Alpha158 + EDGAR + Industry 全量实验
+尚未验证行业相对特征是否提升 IC / Rank IC
+尚未做行业内 TopK 或 sector 权重限制回测
+尚未接入历史 PIT 行业分类，例如 GICS、SIC、NAICS 或 vendor 分类
+尚未处理行业分类变更和行业样本过少的更严谨方案
+```
+
+下一阶段准备：
+
+进入组合层面的行业控制：先比较 Alpha158、Alpha158+EDGAR、Alpha158+EDGAR+Industry 三组模型指标，再做行业内 TopK / sector 权重限制回测，观察年化收益、最大回撤、换手率和成本后收益。
+
+产出文件：
+
+```text
+analysis/nasdaq_top500_score/industry/
+analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_industry_lgbm_1d.yaml
+analysis/nasdaq_top500_score/run_qlib_alpha158_lightgbm.py
+analysis/nasdaq_top500_score/README.md
+tests/analysis/test_industry_features.py
+learning/05-data-expansion/Industry Features And Relative Ranking.md
+learning/06-portfolio-risk/Industry Neutralization.md
+learning/99-logs/Qlib Learning Log.md
+learning/99-logs/Stage Completion Records.md
+```

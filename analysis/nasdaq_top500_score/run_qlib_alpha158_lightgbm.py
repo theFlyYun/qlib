@@ -20,9 +20,11 @@ import yaml
 try:
     from data_sources import DataSourceUnavailable, create_data_source
     from fundamentals import build_fundamental_features
+    from industry import build_industry_feature_frame
 except ImportError:  # pragma: no cover - supports importing this script as a module in tests.
     from analysis.nasdaq_top500_score.data_sources import DataSourceUnavailable, create_data_source
     from analysis.nasdaq_top500_score.fundamentals import build_fundamental_features
+    from analysis.nasdaq_top500_score.industry import build_industry_feature_frame
 
 WORKSPACE = Path(__file__).resolve().parents[2]
 ROOT = Path(__file__).resolve().parent
@@ -100,6 +102,14 @@ def validate_config(config: dict[str, Any]) -> None:
             raise ValueError("currently supports fundamentals.source: sec_edgar")
         if fundamentals.get("enabled") and not fundamentals.get("cache_dir"):
             raise ValueError("enabled fundamentals require fundamentals.cache_dir")
+    industry = config.get("industry", {})
+    if industry:
+        if industry.get("source") != "universe":
+            raise ValueError("currently supports industry.source: universe")
+        if industry.get("enabled") and not fundamentals.get("enabled", False):
+            raise ValueError("enabled industry features require fundamentals.enabled: true")
+        if industry.get("enabled") and not industry.get("rank_features"):
+            raise ValueError("enabled industry features require industry.rank_features")
 
     train_ratio = float(config["split"]["train_ratio"])
     valid_ratio = float(config["split"]["valid_ratio"])
@@ -120,6 +130,8 @@ def build_paths(config: dict[str, Any]) -> dict[str, Path]:
         "fundamental_features": output_dir / "fundamental_features.parquet",
         "fundamental_failures": output_dir / "fundamental_failures.csv",
         "edgar_cik_map": output_dir / "edgar_cik_map.csv",
+        "industry_features": output_dir / "industry_features.parquet",
+        "industry_failures": output_dir / "industry_failures.csv",
         "predictions_csv": output_dir / "predictions.csv",
         "report_md": output_dir / "report.md",
         "resolved_config": output_dir / "resolved_config.yaml",
@@ -226,15 +238,25 @@ def train_and_predict(
         label=([config["label"]["expression"]], [config["label"]["name"]]),
     )
     fundamental_result = None
+    industry_result = None
+    extra_feature_frames: list[pd.DataFrame] = []
     if config.get("fundamentals", {}).get("enabled", False):
         print("Building SEC EDGAR point-in-time fundamental features...")
         fundamental_result = build_fundamental_features(universe, config, paths)
+        extra_feature_frames.append(fundamental_result.features)
+    if config.get("industry", {}).get("enabled", False):
+        print("Building industry-relative fundamental features...")
+        if fundamental_result is None:
+            raise RuntimeError("industry features require fundamental features to be built first")
+        industry_result = build_industry_feature_frame(universe, config, paths, fundamental_result.features)
+        extra_feature_frames.append(industry_result.features)
+    if extra_feature_frames:
         raw = handler.fetch(
             selector=slice(segments["all"][0], segments["all"][1]),
             col_set=["feature", "label"],
             data_key=DataHandlerLP.DK_R,
         )
-        combined = combine_alpha_and_fundamental_raw(raw, fundamental_result.features)
+        combined = combine_alpha_and_feature_frames_raw(raw, extra_feature_frames)
         handler = DataHandlerLP(
             data_loader=StaticDataLoader(combined),
             learn_processors=[
@@ -265,6 +287,8 @@ def train_and_predict(
     merged = latest.merge(universe, on="symbol", how="left")
     merged = merged.sort_values("score", ascending=False)
     merged.to_csv(paths["predictions_csv"], index=False)
+    top_n = int(config["report"]["top_n"])
+    top_predictions = merged.head(top_n)
 
     label = dataset.prepare("test", col_set="label", data_key=DataHandlerLP.DK_L)
     label_series = label.iloc[:, 0] if isinstance(label, pd.DataFrame) else label
@@ -291,16 +315,33 @@ def train_and_predict(
         "fundamental_feature_count": 0 if fundamental_result is None else int(fundamental_result.features.shape[1]),
         "fundamental_failure_count": 0 if fundamental_result is None else int(len(fundamental_result.failures)),
         "cik_mapped_count": 0 if fundamental_result is None else int(len(fundamental_result.cik_map)),
+        "industry_enabled": bool(config.get("industry", {}).get("enabled", False)),
+        "industry_feature_count": 0 if industry_result is None else int(industry_result.features.shape[1]),
+        "industry_failure_count": 0 if industry_result is None else int(len(industry_result.failures)),
+        "industry_coverage": {} if industry_result is None else industry_result.coverage,
+        "top_sector_counts": top_predictions["sector"].fillna("UNKNOWN").value_counts().to_dict()
+        if "sector" in top_predictions
+        else {},
+        "top_industry_counts": top_predictions["industry"].fillna("UNKNOWN").value_counts().to_dict()
+        if "industry" in top_predictions
+        else {},
     }
     return merged, meta
 
 
-def combine_alpha_and_fundamental_raw(alpha_raw: pd.DataFrame, fundamental_features: pd.DataFrame) -> pd.DataFrame:
+def combine_alpha_and_feature_frames_raw(
+    alpha_raw: pd.DataFrame,
+    extra_feature_frames: list[pd.DataFrame],
+) -> pd.DataFrame:
     alpha_features = alpha_raw["feature"]
     labels = alpha_raw["label"]
-    aligned_fundamentals = fundamental_features.reindex(alpha_features.index)
-    combined_features = pd.concat([alpha_features, aligned_fundamentals], axis=1)
+    aligned_features = [frame.reindex(alpha_features.index) for frame in extra_feature_frames if not frame.empty]
+    combined_features = pd.concat([alpha_features, *aligned_features], axis=1)
     return pd.concat({"feature": combined_features, "label": labels}, axis=1).sort_index()
+
+
+def combine_alpha_and_fundamental_raw(alpha_raw: pd.DataFrame, fundamental_features: pd.DataFrame) -> pd.DataFrame:
+    return combine_alpha_and_feature_frames_raw(alpha_raw, [fundamental_features])
 
 
 def fmt_money(value: float) -> str:
@@ -368,6 +409,14 @@ def write_report(
             else ["- 未启用。"]
         ),
         "",
+        "## 行业相对特征",
+        "",
+        *(
+            format_yaml_block(config.get("industry", {}))
+            if config.get("industry", {}).get("enabled", False)
+            else ["- 未启用。"]
+        ),
+        "",
         "## 标签与特征",
         "",
         f"- 标签名：`{config['label']['name']}`",
@@ -418,8 +467,21 @@ def write_report(
             f"- EDGAR 特征数量：{meta.get('fundamental_feature_count', 0)}",
             f"- EDGAR CIK 映射数量：{meta.get('cik_mapped_count', 0)}",
             f"- EDGAR 失败或跳过数量：{meta.get('fundamental_failure_count', 0)}",
+            f"- 行业相对特征数量：{meta.get('industry_feature_count', 0)}",
+            f"- 行业分类失败或跳过数量：{meta.get('industry_failure_count', 0)}",
             "",
             "IC 可以粗略理解为：每个交易日横截面上，模型预测分数和真实后续收益的相关性。",
+            "",
+            "## 行业覆盖",
+            "",
+            f"- 股票池 sector 缺失数量：{meta.get('industry_coverage', {}).get('sector_missing_count', 0)}",
+            f"- 股票池 industry 缺失数量：{meta.get('industry_coverage', {}).get('industry_missing_count', 0)}",
+            "- TopN sector 分布：",
+            *format_yaml_block(meta.get("top_sector_counts", {})),
+            "- TopN industry 分布：",
+            *format_yaml_block(meta.get("top_industry_counts", {})),
+            "",
+            "第一版行业分类来自当前 Nasdaq public snapshot，不是历史 PIT 行业分类。它适合学习行业内比较，但不能替代严谨回测里的历史行业口径。",
             "",
             "## 数据失败数量",
             "",
@@ -434,6 +496,8 @@ def write_report(
             "- `fundamental_features.parquet`：日频 PIT 财报与估值特征；仅启用 EDGAR 时生成有效内容。",
             "- `fundamental_failures.csv`：EDGAR 映射、字段或行情缺失记录。",
             "- `edgar_cik_map.csv`：本次股票池 ticker 到 SEC CIK 的映射。",
+            "- `industry_features.parquet`：行业内 rank / percentile 特征；仅启用行业特征时生成有效内容。",
+            "- `industry_failures.csv`：sector / industry 缺失或 rank 字段缺失记录。",
             "- `predictions.csv`：最新日全部模型分数。",
             "- `report.md`：本报告。",
             "- `resolved_config.yaml`：本次实际使用配置，复盘时优先看它。",

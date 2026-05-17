@@ -52,6 +52,7 @@
 - [Norgate Data Integration](<05-data-expansion/Norgate Data Integration.md>)
 - [SEC EDGAR Fundamentals Integration](<05-data-expansion/SEC EDGAR Fundamentals Integration.md>)
 - [SEC EDGAR Technical Data Flow](<05-data-expansion/SEC EDGAR Technical Data Flow.md>)
+- [Industry Features And Relative Ranking](<05-data-expansion/Industry Features And Relative Ranking.md>)
 - [Data Scope And Sources](<05-data-expansion/Data Scope And Sources.md>)
 - [Financial Valuation Industry Macro News](<05-data-expansion/Financial Valuation Industry Macro News.md>)
 

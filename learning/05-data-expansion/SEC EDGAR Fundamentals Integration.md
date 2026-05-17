@@ -240,7 +240,7 @@ SEC XBRL tag 存在公司差异
 ```text
 1. 真实跑 5 只股票 smoke test，检查字段覆盖率。
 2. 扩展到当前 Nasdaq 股票池，对比 Alpha158 baseline。
-3. 再接行业分类，把财报特征改为行业内可比。
+3. 再接行业分类，把财报特征改为行业内可比，详见 [[Industry Features And Relative Ranking]]。
 ```
 
 相关笔记：
@@ -248,5 +248,6 @@ SEC XBRL tag 存在公司差异
 [[Alpha158 And Features]]
 [[Norgate Data Integration]]
 [[SEC EDGAR Technical Data Flow]]
+[[Industry Features And Relative Ranking]]
 [[Data Source Upgrade Plan]]
 [[Financial Valuation Industry Macro News]]

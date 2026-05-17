@@ -1,0 +1,77 @@
+experiment:
+  name: nasdaq_alpha158_edgar_industry_lgbm_1d
+  output_dir: analysis/nasdaq_top500_score/runs/nasdaq_alpha158_edgar_industry_lgbm_1d
+
+universe:
+  exchange: NASDAQ
+  top_n_by_market_cap: 500
+  exclude_etf: true
+  exclude_test_issue: true
+  min_history_rows: 180
+
+data:
+  source: nasdaq_public
+  lookback_days: 900
+  freq: day
+  vwap_method: ohlc_mean
+
+fundamentals:
+  enabled: true
+  source: sec_edgar
+  cache_dir: analysis/nasdaq_top500_score/runs/nasdaq_alpha158_edgar_industry_lgbm_1d/edgar_cache
+  forms:
+    - 10-K
+    - 10-Q
+    - 10-K/A
+    - 10-Q/A
+  min_filing_count: 4
+  enable_valuation: true
+  recent_filing_days: 5
+
+industry:
+  enabled: true
+  source: universe
+  group_level: industry
+  fallback_group_level: sector
+  min_group_size: 5
+  rank_features:
+    - edgar_price_to_sales
+    - edgar_price_to_book
+    - edgar_price_to_earnings
+    - edgar_gross_margin
+    - edgar_net_margin
+    - edgar_roe
+    - edgar_revenue_yoy_growth
+    - edgar_liabilities_to_assets
+
+label:
+  expression: Ref($close, -2) / Ref($close, -1) - 1
+  name: LABEL0
+
+features:
+  handler: Alpha158
+  instruments: all
+
+split:
+  method: ratio
+  train_ratio: 0.62
+  valid_ratio: 0.18
+  test_ratio: 0.20
+  warmup_days: 60
+
+model:
+  class: LGBModel
+  kwargs:
+    loss: mse
+    learning_rate: 0.05
+    num_leaves: 64
+    max_depth: 8
+    n_estimators: 300
+    subsample: 0.85
+    colsample_bytree: 0.85
+    lambda_l1: 1.0
+    lambda_l2: 10.0
+    num_threads: 8
+
+report:
+  top_n: 5

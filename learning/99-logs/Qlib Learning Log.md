@@ -86,6 +86,19 @@
 
 详细笔记：[[SEC EDGAR Fundamentals Integration]]
 
+## 2026-05-17 行业特征与行业内相对因子
+
+- 学习主题：把 EDGAR 财报和估值特征改成行业内可比的 rank / percentile。
+- 策略假设：估值、ROE、毛利率、成长和负债率不能直接跨行业比较；行业内相对位置可能比绝对数值更稳定。
+- 使用数据：当前 Nasdaq public 股票池 `universe.csv` 中的 `sector` / `industry`，以及 EDGAR 生成的 `edgar_` 财报估值特征。
+- 信号来源：行业内 rank、行业内 percentile、sector fallback percentile。
+- 当前动作：新增行业特征配置和适配层，输出 `industry_features.parquet` 与 `industry_failures.csv`，并合并进同一个 Qlib LightGBM 模型。
+- 当前判断：这一步完成的是模型输入升级，不等于已经完成行业中性策略。
+- 当前限制：行业分类来自当前 Nasdaq snapshot，不是历史 PIT 行业分类。
+- 下一步：做行业内 TopK / sector 权重限制回测，验证行业相对信号是否能转化为成本后收益。
+
+详细笔记：[[Industry Features And Relative Ranking]]
+
 ## 复盘原则
 
 - 先写假设，再看结果。

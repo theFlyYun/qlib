@@ -17,6 +17,8 @@
 比较行业中性前后的 IC 和回测
 ```
 
+当前阶段先完成的是模型输入层的行业相对特征，见 [[Industry Features And Relative Ranking]]。它解决“同行里谁更好”的问题，但还没有限制最终组合的行业权重。
+
 ## 当前 Nasdaq 问题
 
 Nasdaq 总市值前 500 包含：
@@ -41,4 +43,4 @@ REIT
 
 ## 下一阶段准备
 
-阅读 [[Portfolio Risk Control]]，把行业约束扩展到组合风险。
+阅读 [[Industry Features And Relative Ranking]] 和 [[Portfolio Risk Control]]，下一步把行业相对信号扩展到组合约束。

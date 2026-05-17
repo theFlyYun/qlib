@@ -60,3 +60,4 @@ analysis/**/qlib_data/
 analysis/**/qlib_source_csv/
 analysis/**/edgar_cache/
 analysis/**/fundamental_features.parquet
+analysis/**/industry_features.parquet
