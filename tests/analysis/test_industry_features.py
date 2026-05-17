@@ -114,7 +114,7 @@ def test_combined_frame_keeps_alpha_fundamental_industry_and_label_groups() -> N
         axis=1,
     )
     fundamentals = pd.DataFrame({"edgar_roe": [0.2]}, index=index)
-    industry = pd.DataFrame({"industry_pct_roe": [1.0]}, index=index)
+    industry = pd.DataFrame({"industry_pct_roe": [pd.NA]}, index=index)
 
     combined = combine_alpha_and_feature_frames_raw(alpha_raw, [fundamentals, industry])
 
@@ -122,3 +122,5 @@ def test_combined_frame_keeps_alpha_fundamental_industry_and_label_groups() -> N
     assert ("feature", "edgar_roe") in combined.columns
     assert ("feature", "industry_pct_roe") in combined.columns
     assert ("label", "LABEL0") in combined.columns
+    assert pd.isna(combined.loc[(pd.Timestamp("2024-01-02"), "AAA"), ("feature", "industry_pct_roe")])
+    assert combined["feature"].dtypes["industry_pct_roe"].kind == "f"

@@ -144,13 +144,15 @@ def test_combine_alpha_and_fundamental_raw_preserves_feature_and_label_groups() 
         },
         axis=1,
     )
-    fundamentals = pd.DataFrame({"edgar_revenue_ttm": [100.0]}, index=index)
+    fundamentals = pd.DataFrame({"edgar_revenue_ttm": [pd.NA]}, index=index)
 
     combined = combine_alpha_and_fundamental_raw(alpha_raw, fundamentals)
 
     assert ("feature", "KMID") in combined.columns
     assert ("feature", "edgar_revenue_ttm") in combined.columns
     assert ("label", "LABEL0") in combined.columns
+    assert pd.isna(combined.loc[(pd.Timestamp("2020-01-02"), "AAA"), ("feature", "edgar_revenue_ttm")])
+    assert combined["feature"].dtypes["edgar_revenue_ttm"].kind == "f"
 
 
 def test_sec_edgar_features_are_point_in_time_and_record_failures(tmp_path: Path) -> None:

@@ -14,6 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 import yaml
 
@@ -409,6 +410,8 @@ def combine_alpha_and_feature_frames_raw(
     labels = alpha_raw["label"]
     aligned_features = [frame.reindex(alpha_features.index) for frame in extra_feature_frames if not frame.empty]
     combined_features = pd.concat([alpha_features, *aligned_features], axis=1)
+    combined_features = combined_features.mask(combined_features.isna(), np.nan).apply(pd.to_numeric, errors="coerce")
+    labels = labels.mask(labels.isna(), np.nan).apply(pd.to_numeric, errors="coerce")
     return pd.concat({"feature": combined_features, "label": labels}, axis=1).sort_index()
 
 

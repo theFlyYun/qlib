@@ -46,6 +46,23 @@ analysis/nasdaq_top500_score/configs/nasdaq_alpha158_lgbm_10y_fixed.yaml
   --config analysis/nasdaq_top500_score/configs/nasdaq_alpha158_lgbm_10y_fixed.yaml
 ```
 
+固定 10 年窗口、短历史股票也进入评估的配置：
+
+```text
+analysis/nasdaq_top500_score/configs/nasdaq_alpha158_lgbm_10y_eval_all.yaml
+analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_lgbm_10y_eval_all.yaml
+```
+
+这两个配置仍使用 `2016-05-17` 到 `2026-05-17` 的固定窗口，但把 `min_history_rows` 降到 180。短历史股票不会贡献它们不存在的早期训练样本；只要测试期有足够数据，就可以进入预测和评估。
+
+已跑通的 EDGAR 全量实验结果在：
+
+```text
+analysis/nasdaq_top500_score/runs/nasdaq_alpha158_edgar_lgbm_10y_eval_all/report.md
+```
+
+本次生成 895,760 行日频 EDGAR PIT 特征，覆盖 420 只股票；最新日可预测 480 只股票。该目录属于大型实验产物，默认不提交 Git。
+
 Norgate S&P 500 历史成分实验配置：
 
 ```text

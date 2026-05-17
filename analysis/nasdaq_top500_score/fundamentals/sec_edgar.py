@@ -379,10 +379,10 @@ def compute_event_ratios(events: pd.DataFrame) -> pd.DataFrame:
     events["net_margin"] = safe_div(events["net_income"], events["revenue"])
     events["roe"] = safe_div(events["net_income_ttm"], events["equity"])
     events["roa"] = safe_div(events["net_income_ttm"], events["assets"])
-    events["revenue_yoy_growth"] = events["revenue"].pct_change(4)
-    events["net_income_yoy_growth"] = events["net_income"].pct_change(4)
-    events["eps_yoy_growth"] = events["eps_diluted"].pct_change(4)
-    events["assets_yoy_growth"] = events["assets"].pct_change(4)
+    events["revenue_yoy_growth"] = events["revenue"].pct_change(4, fill_method=None)
+    events["net_income_yoy_growth"] = events["net_income"].pct_change(4, fill_method=None)
+    events["eps_yoy_growth"] = events["eps_diluted"].pct_change(4, fill_method=None)
+    events["assets_yoy_growth"] = events["assets"].pct_change(4, fill_method=None)
     events["cfo_to_net_income"] = safe_div(events["operating_cash_flow_ttm"], events["net_income_ttm"])
     events["fcf_margin"] = safe_div(events["free_cash_flow_ttm"], events["revenue_ttm"])
     events["liabilities_to_assets"] = safe_div(events["liabilities"], events["assets"])
@@ -413,7 +413,7 @@ def load_price_frame(source_dir: Path, symbol: str) -> pd.DataFrame:
 
 
 def to_naive_datetime(value: Any) -> pd.Series:
-    return pd.to_datetime(value, errors="coerce", utc=True).dt.tz_convert(None).dt.normalize()
+    return pd.to_datetime(value, errors="coerce", utc=True, format="mixed").dt.tz_convert(None).dt.normalize()
 
 
 def safe_div(numerator: pd.Series, denominator: pd.Series) -> pd.Series:

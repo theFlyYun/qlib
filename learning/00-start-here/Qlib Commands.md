@@ -82,6 +82,22 @@ python examples/workflow_by_code.py
   --config analysis/nasdaq_top500_score/configs/nasdaq_alpha158_lgbm_10y_fixed.yaml
 ```
 
+运行固定 10 年窗口、短历史股票也进入评估的 baseline：
+
+```bash
+.venv/bin/python -u analysis/nasdaq_top500_score/run_qlib_alpha158_lightgbm.py \
+  --config analysis/nasdaq_top500_score/configs/nasdaq_alpha158_lgbm_10y_eval_all.yaml
+```
+
+运行固定 10 年窗口、短历史股票也进入评估的 EDGAR 实验：
+
+```bash
+export SEC_EDGAR_USER_AGENT="Your Name your-email@example.com"
+
+.venv/bin/python -u analysis/nasdaq_top500_score/run_qlib_alpha158_lightgbm.py \
+  --config analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_lgbm_10y_eval_all.yaml
+```
+
 运行真实 EDGAR smoke test 前先设置 User-Agent：
 
 ```bash
@@ -96,6 +112,21 @@ export SEC_EDGAR_USER_AGENT="Your Name your-email@example.com"
 ```bash
 sed -n '1,220p' analysis/nasdaq_top500_score/runs/nasdaq_alpha158_lgbm_1d/report.md
 sed -n '1,160p' analysis/nasdaq_top500_score/runs/nasdaq_alpha158_lgbm_1d/resolved_config.yaml
+```
+
+复盘 10 年窗口 EDGAR 全量实验：
+
+```bash
+sed -n '1,220p' analysis/nasdaq_top500_score/runs/nasdaq_alpha158_edgar_lgbm_10y_eval_all/report.md
+
+.venv/bin/python - <<'PY'
+from pathlib import Path
+import pandas as pd
+run = Path("analysis/nasdaq_top500_score/runs/nasdaq_alpha158_edgar_lgbm_10y_eval_all")
+features = pd.read_parquet(run / "fundamental_features.parquet")
+print(features.shape)
+print(features.index.get_level_values("instrument").nunique())
+PY
 ```
 
 ## 测试与验证

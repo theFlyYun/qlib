@@ -719,3 +719,106 @@ analysis/nasdaq_top500_score/runs/nasdaq_alpha158_lgbm_10y_fixed/
 learning/99-logs/Qlib Learning Log.md
 learning/99-logs/Stage Completion Records.md
 ```
+
+## 2026-05-17 阶段 E.6：短历史股票评估与真实 EDGAR 全量接入
+
+目标：
+
+在固定 10 年窗口中，让不满 10 年历史但有足够近期数据的股票进入预测/评估，同时真实获取 SEC EDGAR 财报数据并接入模型。
+
+为什么要做：
+
+当前 Nasdaq 市值前 500 里有很多新上市、重组或特殊证券。如果要求每只股票都满 10 年历史，会排除大量测试期真实可见的股票；但如果直接放开，又必须明确它们不会贡献不存在的早期训练样本。
+
+输入数据：
+
+```text
+股票池：当前 Nasdaq 市值前 500
+固定行情窗口：2016-05-17 到 2026-05-17
+最低历史行数：180
+行情字段：date, symbol, open, high, low, close, vwap, volume
+财报来源：SEC EDGAR company_tickers_exchange / submissions / companyfacts
+财报表单：10-K, 10-Q, 10-K/A, 10-Q/A
+```
+
+核心概念：
+
+```text
+短历史股票
+固定全局窗口
+真实存在样本
+CIK 映射
+PIT 财报特征
+EDGAR 字段缺失
+```
+
+实验动作：
+
+```text
+新增 nasdaq_alpha158_lgbm_10y_eval_all.yaml
+新增 nasdaq_alpha158_edgar_lgbm_10y_eval_all.yaml
+修复 EDGAR / 行业特征中的 pd.NA，使其在 LightGBM 输入前变成 np.nan
+修复 EDGAR 同比增长 pct_change 的显式缺失处理
+运行 10 年窗口 EDGAR 全量实验
+生成 report.md、predictions.csv、fundamental_features.parquet、fundamental_failures.csv、edgar_cik_map.csv
+```
+
+评价指标：
+
+```text
+py_compile 通过
+SEC EDGAR / industry / fixed window 单元测试通过
+真实 EDGAR 全量实验跑通
+报告中包含 IC、Rank IC、TopN、CIK 映射数量、财报特征数量、失败数量
+大型 runs 输出继续不进入 Git
+```
+
+结果解读：
+
+```text
+股票池：500
+进入 Qlib source CSV：481
+下载失败或历史不足：19
+最新日可预测股票数：480
+EDGAR CIK 映射数量：499
+EDGAR 日频特征矩阵：895,760 行 x 29 列
+EDGAR 特征覆盖股票数：420
+EDGAR 失败或跳过数量：340
+Test 日均 IC：0.011370
+Test 日均 Rank IC：0.003418
+参与 IC 计算交易日：593
+```
+
+Top5 预测结果：
+
+```text
+NVAWW
+FLEX
+NBIS
+SNDK
+TSEM
+```
+
+遗留问题：
+
+```text
+Top5 中出现 warrant / 特殊证券，说明当前 Nasdaq public 的 exclude_etf / exclude_test_issue 不足以完成普通股清洗
+EDGAR missing_fields 较多，不同公司 XBRL tag 和业务形态差异会影响特征质量
+短历史股票和完整 10 年股票混在一起评估，后续需要按历史长度分桶观察
+股票池仍是当前静态前 500，不是历史动态成分，也不含退市股票
+本次仍是 1 日收益标签，尚未切换未来 5 日收益
+```
+
+下一阶段准备：
+
+先做股票池清洗与历史长度分桶：过滤 warrant、preferred、rights、units 等特殊证券；把样本按完整 10 年、5-10 年、2-5 年、少于 2 年分组，再比较预测覆盖和 IC。随后把 EDGAR + 行业相对特征放到同一 10 年窗口中对比。
+
+产出文件：
+
+```text
+analysis/nasdaq_top500_score/configs/nasdaq_alpha158_lgbm_10y_eval_all.yaml
+analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_lgbm_10y_eval_all.yaml
+analysis/nasdaq_top500_score/runs/nasdaq_alpha158_edgar_lgbm_10y_eval_all/
+learning/99-logs/Qlib Learning Log.md
+learning/99-logs/Stage Completion Records.md
+```
