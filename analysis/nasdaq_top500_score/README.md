@@ -98,6 +98,27 @@ export SEC_EDGAR_USER_AGENT="Your Name your-email@example.com"
   --config analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_lgbm_10y_clean_bucket_top10.yaml
 ```
 
+同一口径的未来 5 日收益标签配置：
+
+```text
+analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_lgbm_10y_clean_bucket_top10_5d.yaml
+```
+
+该配置只把标签改为：
+
+```text
+Ref($close, -6) / Ref($close, -1) - 1
+```
+
+运行入口：
+
+```bash
+export SEC_EDGAR_USER_AGENT="Your Name your-email@example.com"
+
+.venv/bin/python -u analysis/nasdaq_top500_score/run_qlib_alpha158_lightgbm.py \
+  --config analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_lgbm_10y_clean_bucket_top10_5d.yaml
+```
+
 Norgate S&P 500 历史成分实验配置：
 
 ```text

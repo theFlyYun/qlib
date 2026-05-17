@@ -1345,3 +1345,115 @@ learning/05-data-expansion/Liquidity Filtering.md
 learning/99-logs/Qlib Learning Log.md
 learning/99-logs/Stage Completion Records.md
 ```
+
+## 2026-05-17 阶段 C / D.5：未来 5 日收益标签
+
+目标：
+
+把模型预测目标从未来 1 日收益升级为未来 5 日收益，并在相同股票池、数据源、特征、模型和筛选规则下对比 IC、Rank IC 与 Top10 稳定性。
+
+为什么要做：
+
+1 日收益受隔夜消息、短期资金流和微观结构噪声影响很大。5 日收益可能更平滑，更适合学习中短期趋势、财报后反应和事件逐步定价。
+
+输入数据：
+
+```text
+股票池：Nasdaq public 当前股票池
+固定行情窗口：2016-05-17 到 2026-05-17
+证券主数据：已启用
+流动性过滤：已启用
+财报来源：SEC EDGAR 10-K / 10-Q / companyfacts
+特征：Alpha158 + EDGAR
+模型：LightGBM
+最终选择：历史长度桶名额 + 行业名额约束
+```
+
+核心概念：
+
+```text
+未来收益标签
+1 日收益
+5 日收益
+t+1 建仓参考
+t+1 到 t+6 持有 5 个交易日
+IC / Rank IC
+Top10 稳定性
+```
+
+实验动作：
+
+```text
+新增 nasdaq_alpha158_edgar_lgbm_10y_clean_bucket_top10_5d.yaml
+标签改为 Ref($close, -6) / Ref($close, -1) - 1
+复跑完整 Qlib 流水线
+对比 1 日和 5 日标签的 IC、Rank IC、Top10 重叠和行业分布
+更新 Labels And Future Returns 和新增 Five Day Future Return Label
+```
+
+评价指标：
+
+```text
+py_compile 通过
+所有 YAML 配置可解析
+真实 5 日配置运行成功
+生成 report.md、predictions.csv、selected_top10.csv、resolved_config.yaml
+Markdown 链接无断链
+大型 runs 输出继续不进入 Git
+```
+
+结果解读：
+
+```text
+1 日标签 IC：-0.000519
+1 日标签 Rank IC：0.001712
+1 日标签 IC 交易日：593
+5 日标签 IC：0.036729
+5 日标签 Rank IC：0.016211
+5 日标签 IC 交易日：589
+```
+
+1 日 Top10：
+
+```text
+AAOI, IBRX, LUNR, AXTI, FLEX, SNDK, CELC, QS, CORZ, LQDA
+```
+
+5 日 Top10：
+
+```text
+IBRX, LUNR, CYTK, LQDA, ONDS, BILI, KTOS, NTNX, TEM, TRI
+```
+
+Top10 重叠：
+
+```text
+IBRX
+LQDA
+LUNR
+```
+
+遗留问题：
+
+```text
+5 日 IC 更高不等于策略可交易
+尚未处理持有期重叠
+尚未做成本后净值曲线
+尚未计算换手、最大回撤、信息比率
+ADR/ADS 和 unknown_equity_like 仍需后续复核
+```
+
+下一阶段准备：
+
+进入第 5 条：TopK 成本后回测。目标是把 5 日标签下的模型分数转成组合净值，计算成本后收益、最大回撤、换手率和收益风险比。
+
+产出文件：
+
+```text
+analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_lgbm_10y_clean_bucket_top10_5d.yaml
+learning/02-signals-and-labels/Five Day Future Return Label.md
+learning/02-signals-and-labels/Labels And Future Returns.md
+learning/00-start-here/Qlib Commands.md
+learning/99-logs/Qlib Learning Log.md
+learning/99-logs/Stage Completion Records.md
+```

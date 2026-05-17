@@ -39,7 +39,7 @@ Qlib 默认从 `t+1` 开始计算，是为了给交易执行留出时间。
 
 ## 未来 5 日收益标签
 
-后续阶段 C 默认改成：
+阶段 D.5 已新增 5 日标签配置：
 
 ```text
 Ref($close, -6) / Ref($close, -1) - 1
@@ -51,6 +51,16 @@ Ref($close, -6) / Ref($close, -1) - 1
 t 日生成信号
 t+1 日作为建仓参考
 t+1 到 t+6 持有 5 个交易日
+```
+
+本次实验结果详见 [[Five Day Future Return Label]]。
+
+简要对比：
+
+```text
+1 日标签 IC：-0.000519，Rank IC：0.001712
+5 日标签 IC：0.036729，Rank IC：0.016211
+Top10 重叠：IBRX、LQDA、LUNR
 ```
 
 ## 评价指标

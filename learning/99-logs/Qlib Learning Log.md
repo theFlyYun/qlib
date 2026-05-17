@@ -195,6 +195,20 @@
 
 详细笔记：[[Security Master Data]]
 
+## 2026-05-17 未来 5 日收益标签
+
+- 学习主题：把模型预测目标从未来 1 日收益改成未来 5 日收益。
+- 策略假设：1 日收益噪声很大，5 日收益可能更贴近中短期趋势、财报后反应和事件逐步定价。
+- 当前动作：新增 `nasdaq_alpha158_edgar_lgbm_10y_clean_bucket_top10_5d.yaml`，除标签外保持证券主数据、流动性、EDGAR、模型参数、分桶和行业约束不变。
+- 标签表达式：`Ref($close, -6) / Ref($close, -1) - 1`，含义是从 t+1 收盘到 t+6 收盘的 5 个交易日收益。
+- 1 日结果：IC `-0.000519`，Rank IC `0.001712`，Top10 为 `AAOI`、`IBRX`、`LUNR`、`AXTI`、`FLEX`、`SNDK`、`CELC`、`QS`、`CORZ`、`LQDA`。
+- 5 日结果：IC `0.036729`，Rank IC `0.016211`，Top10 为 `IBRX`、`LUNR`、`CYTK`、`LQDA`、`ONDS`、`BILI`、`KTOS`、`NTNX`、`TEM`、`TRI`。
+- Top10 重叠：`IBRX`、`LQDA`、`LUNR`。
+- 当前判断：5 日标签在当前口径下更有预测相关性，但还不是可交易结论，下一步必须做成本后回测。
+- 下一步：做 TopK 成本后回测，观察净值、换手、最大回撤和成本后收益。
+
+详细笔记：[[Five Day Future Return Label]]
+
 ## 复盘原则
 
 - 先写假设，再看结果。

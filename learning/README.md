@@ -32,6 +32,7 @@
 
 - [Alpha158 And Features](<02-signals-and-labels/Alpha158 And Features.md>)
 - [Labels And Future Returns](<02-signals-and-labels/Labels And Future Returns.md>)
+- [Five Day Future Return Label](<02-signals-and-labels/Five Day Future Return Label.md>)
 - [IC And Rank IC](<02-signals-and-labels/IC And Rank IC.md>)
 
 ### 03 Modeling
