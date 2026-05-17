@@ -4,6 +4,8 @@
 
 SEC EDGAR 这一步要把财报数据变成模型能使用的基本面特征。
 
+源数据、CIK 映射和 PIT 技术流程图见 [[SEC EDGAR Technical Data Flow]]。
+
 它不是替代 Alpha158，而是补上 Alpha158 看不到的维度：
 
 ```text
@@ -245,5 +247,6 @@ SEC XBRL tag 存在公司差异
 
 [[Alpha158 And Features]]
 [[Norgate Data Integration]]
+[[SEC EDGAR Technical Data Flow]]
 [[Data Source Upgrade Plan]]
 [[Financial Valuation Industry Macro News]]
