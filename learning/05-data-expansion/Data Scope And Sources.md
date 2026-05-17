@@ -26,6 +26,8 @@
 
 Norgate 是第一条正在工程化接入的升级路线。它先解决价格、复权、退市股票和历史指数成分问题，详见 [[Norgate Data Integration]]。
 
+当前 Nasdaq 学习流水线已经加入轻量证券主数据层，详见 [[Security Master Data]]。它能显式记录普通股、ADR/ADS、warrant、preferred、debt、unit 等类型，但仍不是历史 PIT 主数据。
+
 ## 数据验收标准
 
 每个数据源必须记录：

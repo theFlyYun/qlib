@@ -7,6 +7,7 @@ import pandas as pd
 from analysis.nasdaq_top500_score.selection import (
     apply_bucket_ranking,
     apply_liquidity_filter,
+    apply_security_master_filter,
     build_history_buckets,
     clean_stock_universe,
     select_bucketed_top,
@@ -34,6 +35,52 @@ def test_stock_pool_cleaning_filters_special_securities_and_keeps_equity_like_na
     assert cleaned["symbol"].tolist() == ["AAA", "BBB", "CCC", "DDD"]
     assert set(exclusions["symbol"]) == {"EEW", "FFF", "GGG", "HHH", "III"}
     assert (tmp_path / "universe_exclusions.csv").exists()
+
+
+def test_security_master_classifies_and_filters_security_types(tmp_path: Path) -> None:
+    screener = pd.DataFrame(
+        [
+            {"symbol": "AAA", "name": "AAA Corporation Common Stock", "market_cap": 100, "sector": "Technology", "industry": "Software"},
+            {"symbol": "BBB", "name": "BBB Ltd. American Depositary Shares", "market_cap": 90, "sector": "Technology", "industry": "Software"},
+            {"symbol": "CCC", "name": "CCC Inc. Class A Common Stock", "market_cap": 80, "sector": "Finance", "industry": "Banks"},
+            {"symbol": "DDDW", "name": "DDD Inc. Warrant", "market_cap": 70, "sector": "Finance", "industry": "Banks"},
+            {"symbol": "EEE", "name": "EEE Preferred Stock", "market_cap": 60, "sector": "Finance", "industry": "Banks"},
+        ]
+    )
+    listed = pd.DataFrame(
+        [
+            {"symbol": "AAA", "security_name": "AAA Corporation Common Stock", "market_category": "Q", "test_issue": "N", "financial_status": "N", "round_lot_size": "100", "etf": "N"},
+            {"symbol": "BBB", "security_name": "BBB Ltd. American Depositary Shares", "market_category": "Q", "test_issue": "N", "financial_status": "N", "round_lot_size": "100", "etf": "N"},
+            {"symbol": "CCC", "security_name": "CCC Inc. Class A Common Stock", "market_category": "Q", "test_issue": "N", "financial_status": "N", "round_lot_size": "100", "etf": "N"},
+            {"symbol": "DDDW", "security_name": "DDD Inc. Warrant", "market_category": "Q", "test_issue": "N", "financial_status": "N", "round_lot_size": "100", "etf": "N"},
+            {"symbol": "EEE", "security_name": "EEE Preferred Stock", "market_category": "Q", "test_issue": "N", "financial_status": "N", "round_lot_size": "100", "etf": "N"},
+        ]
+    )
+    config = {
+        "exclude_etf": True,
+        "exclude_test_issue": True,
+        "security_master": {
+            "enabled": True,
+            "allowed_asset_types": ["common_stock", "ordinary_share", "adr_ads", "unknown_equity_like"],
+            "allow_adr_ads": True,
+            "require_not_etf": True,
+            "require_not_test_issue": True,
+        },
+    }
+    paths = {
+        "security_master_csv": tmp_path / "security_master.csv",
+        "security_master_exclusions_csv": tmp_path / "security_master_exclusions.csv",
+        "universe_exclusions_csv": tmp_path / "universe_exclusions.csv",
+    }
+
+    filtered, master, exclusions = apply_security_master_filter(screener, listed, config, paths)
+
+    assert filtered["symbol"].tolist() == ["AAA", "BBB", "CCC"]
+    assert master.set_index("symbol").loc["BBB", "asset_type"] == "adr_ads"
+    assert master.set_index("symbol").loc["CCC", "share_class"] == "A"
+    assert set(exclusions["symbol"]) == {"DDDW", "EEE"}
+    assert (tmp_path / "security_master.csv").exists()
+    assert (tmp_path / "security_master_exclusions.csv").exists()
 
 
 def test_history_bucket_boundaries_are_inclusive(tmp_path: Path) -> None:

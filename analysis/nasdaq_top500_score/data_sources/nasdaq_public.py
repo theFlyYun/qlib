@@ -16,9 +16,9 @@ import requests
 from .base import PreparedData, parse_float, reset_directory, write_failures
 
 try:
-    from analysis.nasdaq_top500_score.selection import clean_stock_universe
+    from analysis.nasdaq_top500_score.selection import apply_security_master_filter, clean_stock_universe
 except ImportError:  # pragma: no cover - supports direct script execution.
-    from selection import clean_stock_universe
+    from selection import apply_security_master_filter, clean_stock_universe
 
 NASDAQ_LISTED_URL = "https://www.nasdaqtrader.com/dynamic/SymDir/nasdaqlisted.txt"
 NASDAQ_SCREENER_URL = "https://api.nasdaq.com/api/screener/stocks"
@@ -80,17 +80,16 @@ class NasdaqPublicDataSource:
 
     def load_top_universe(self) -> pd.DataFrame:
         listed_text = fetch_text(NASDAQ_LISTED_URL)
-        listed_symbols = set()
-        reader = csv.DictReader(io.StringIO(listed_text.replace("\r\n", "\n")), delimiter="|")
-        for row in reader:
-            symbol = row.get("Symbol", "")
-            if not symbol or symbol == "File Creation Time":
-                continue
-            if self.config["universe"]["exclude_test_issue"] and row.get("Test Issue") != "N":
-                continue
-            if self.config["universe"]["exclude_etf"] and row.get("ETF") != "N":
-                continue
-            listed_symbols.add(symbol)
+        listed = parse_listed_securities(listed_text)
+        if self.config["universe"].get("security_master", {}).get("enabled", False):
+            listed_symbols = set(listed["symbol"])
+        else:
+            eligible_listed = listed.copy()
+            if self.config["universe"]["exclude_test_issue"]:
+                eligible_listed = eligible_listed[eligible_listed["test_issue"] == "N"]
+            if self.config["universe"]["exclude_etf"]:
+                eligible_listed = eligible_listed[eligible_listed["etf"] == "N"]
+            listed_symbols = set(eligible_listed["symbol"])
 
         screener = fetch_json(
             NASDAQ_SCREENER_URL,
@@ -108,7 +107,10 @@ class NasdaqPublicDataSource:
         frame["market_cap"] = frame["marketCap"].map(parse_float)
         frame["last_sale"] = frame["lastsale"].map(parse_float)
         frame = frame[frame["market_cap"].notna() & (frame["market_cap"] > 0)]
-        frame, _ = clean_stock_universe(frame, self.config["universe"], self.paths.get("universe_exclusions_csv"))
+        if self.config["universe"].get("security_master", {}).get("enabled", False):
+            frame, _, _ = apply_security_master_filter(frame, listed, self.config["universe"], self.paths)
+        else:
+            frame, _ = clean_stock_universe(frame, self.config["universe"], self.paths.get("universe_exclusions_csv"))
         frame = frame.sort_values("market_cap", ascending=False).head(
             int(self.config["universe"]["top_n_by_market_cap"])
         )
@@ -184,6 +186,28 @@ class NasdaqPublicDataSource:
                     print(f"Downloaded {index}/{len(symbols)}; failures/skips: {len(failures)}")
 
         return write_failures(self.paths["failures_csv"], failures)
+
+
+def parse_listed_securities(text: str) -> pd.DataFrame:
+    rows = []
+    reader = csv.DictReader(io.StringIO(text.replace("\r\n", "\n")), delimiter="|")
+    for row in reader:
+        symbol = row.get("Symbol", "")
+        if not symbol or symbol == "File Creation Time":
+            continue
+        rows.append(
+            {
+                "symbol": symbol,
+                "security_name": row.get("Security Name"),
+                "market_category": row.get("Market Category"),
+                "test_issue": row.get("Test Issue"),
+                "financial_status": row.get("Financial Status"),
+                "round_lot_size": row.get("Round Lot Size"),
+                "etf": row.get("ETF"),
+                "nextshares": row.get("NextShares"),
+            }
+        )
+    return pd.DataFrame(rows)
 
 
 def nasdaq_history_window(data_config: dict[str, Any]) -> tuple[str, str]:

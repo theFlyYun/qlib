@@ -1196,3 +1196,152 @@ learning/05-data-expansion/Stock Pool Cleaning And History Buckets.md
 learning/99-logs/Qlib Learning Log.md
 learning/99-logs/Stage Completion Records.md
 ```
+
+## 2026-05-17 阶段 D.4：证券主数据升级
+
+目标：
+
+把股票池清洗从零散 `symbol/name` 文本规则升级为显式证券主数据表，让每个 symbol 的证券类型、ADR/ADS、share class、ETF/test issue 等字段可复盘。
+
+为什么要做：
+
+普通股、ADR、权证、优先股、债券、unit 和 right 的收益结构与交易属性不同。仅靠模型分数无法识别这些差异，必须先在股票池层面明确哪些证券可以进入普通股研究。
+
+输入数据：
+
+```text
+Nasdaq listed：symbol、security_name、market_category、test_issue、financial_status、round_lot_size、ETF
+Nasdaq screener：name、market_cap、last_sale、sector、industry
+固定行情窗口：2016-05-17 到 2026-05-17
+财报来源：SEC EDGAR 10-K / 10-Q / companyfacts
+标签：未来 1 日收益
+模型：Alpha158 + EDGAR + LightGBM
+最终选择：证券主数据 + 流动性过滤 + 历史长度桶名额 + 行业名额约束
+```
+
+核心概念：
+
+```text
+证券主数据
+普通股
+ADR/ADS
+share class
+warrant
+preferred
+debt
+unit/right
+ETF/test issue
+```
+
+实验动作：
+
+```text
+新增 security_master.py
+Nasdaq public 数据源合并 listed 与 screener 字段
+输出 security_master.csv
+输出 security_master_exclusions.csv
+报告写入资产类型分布、ADR/ADS 数量、share class 数量和剔除原因
+新增证券主数据单元测试
+复跑 clean_bucket_top10 配置
+```
+
+评价指标：
+
+```text
+py_compile 通过
+相关单元测试通过
+所有 YAML 配置可解析
+真实配置运行成功
+生成 security_master.csv 和 security_master_exclusions.csv
+最终 Top10 仍符合 4/3/2/1 桶名额
+最终 Top10 仍满足 sector<=4、industry<=2
+大型 runs 输出继续不进入 Git
+```
+
+结果解读：
+
+```text
+主数据记录数：3533
+主数据剔除数：443
+ADR/ADS 数量：162
+Share class 数量：571
+进入 Qlib 数据股票数：478
+Test 日均 IC：-0.000519
+Test 日均 Rank IC：0.001712
+参与 IC 计算交易日：593
+```
+
+资产类型分布：
+
+```text
+common_stock：2332
+ordinary_share：456
+warrant：279
+adr_ads：162
+unknown_equity_like：140
+preferred：104
+debt：36
+unit：15
+right：5
+depositary_share：4
+```
+
+剔除原因：
+
+```text
+warrant：279
+preferred：104
+debt：36
+unit：15
+right：5
+depositary_share：4
+```
+
+最终 Top10：
+
+```text
+full_10y：AAOI, IBRX, AXTI, FLEX
+5_10y：CELC, QS, LQDA
+2_5y：LUNR, CORZ
+lt_2y：SNDK
+```
+
+最终 sector 分布：
+
+```text
+Technology：4
+Health Care：3
+Industrials：1
+Miscellaneous：1
+Finance：1
+```
+
+遗留问题：
+
+```text
+当前证券主数据不是历史 PIT 口径
+unknown_equity_like 仍需后续复核
+ADR/ADS 只是保留和标记，尚未单独处理国家、汇率和会计口径
+没有完整 primary listing / secondary listing 字段
+尚未做未来 5 日标签和成本后回测
+```
+
+下一阶段准备：
+
+进入第 4 条：未来 5 日收益标签。默认新增 5 日标签配置 `Ref($close, -6) / Ref($close, -1) - 1`，并与当前 1 日标签对比 IC、Rank IC、Top10 稳定性。
+
+产出文件：
+
+```text
+analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_lgbm_10y_clean_bucket_top10.yaml
+analysis/nasdaq_top500_score/data_sources/nasdaq_public.py
+analysis/nasdaq_top500_score/run_qlib_alpha158_lightgbm.py
+analysis/nasdaq_top500_score/selection/security_master.py
+analysis/nasdaq_top500_score/selection/__init__.py
+tests/analysis/test_stock_pool_selection.py
+learning/05-data-expansion/Security Master Data.md
+learning/05-data-expansion/Stock Pool Cleaning And History Buckets.md
+learning/05-data-expansion/Liquidity Filtering.md
+learning/99-logs/Qlib Learning Log.md
+learning/99-logs/Stage Completion Records.md
+```

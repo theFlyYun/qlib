@@ -63,13 +63,13 @@ analysis/nasdaq_top500_score/runs/nasdaq_alpha158_edgar_lgbm_10y_eval_all/report
 
 本次生成 895,760 行日频 EDGAR PIT 特征，覆盖 420 只股票；最新日可预测 480 只股票。该目录属于大型实验产物，默认不提交 Git。
 
-固定 10 年窗口、股票池清洗、流动性过滤、历史长度分桶、桶内 Top10 和行业名额约束配置：
+固定 10 年窗口、证券主数据、流动性过滤、历史长度分桶、桶内 Top10 和行业名额约束配置：
 
 ```text
 analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_lgbm_10y_clean_bucket_top10.yaml
 ```
 
-这个配置会先过滤 warrant、preferred、unit、right、notes 等特殊证券，再过滤低价、低成交额或交易不连续的股票，最后按历史长度桶内排名选出 Top10：
+这个配置会先生成 `security_master.csv`，把证券分类为 common stock、ordinary share、ADR/ADS、warrant、preferred、debt、unit 等，再过滤不适合普通股研究的证券；随后过滤低价、低成交额或交易不连续的股票，最后按历史长度桶内排名选出 Top10：
 
 ```text
 full_10y: 4
@@ -190,7 +190,7 @@ EDGAR 配置会额外生成 `fundamental_features.parquet`、`fundamental_failur
 
 行业配置会额外生成 `industry_features.parquet` 和 `industry_failures.csv`。
 
-清洗、流动性过滤、分桶和行业约束配置会额外生成 `universe_exclusions.csv`、`liquidity_profile.csv`、`liquidity_exclusions.csv`、`history_buckets.csv`、`bucketed_predictions.csv` 和 `selected_top10.csv`。
+证券主数据、流动性过滤、分桶和行业约束配置会额外生成 `security_master.csv`、`security_master_exclusions.csv`、`universe_exclusions.csv`、`liquidity_profile.csv`、`liquidity_exclusions.csv`、`history_buckets.csv`、`bucketed_predictions.csv` 和 `selected_top10.csv`。
 
 `resolved_config.yaml` 是复盘入口：它记录这次实验实际使用的股票池、标签、特征、切分和模型参数。
 

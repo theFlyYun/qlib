@@ -8,13 +8,17 @@ universe:
   exclude_etf: true
   exclude_test_issue: true
   min_history_rows: 180
-  security_filter:
+  security_master:
     enabled: true
-    exclude_symbol_regexes:
-      - ".*W$"
-      - ".*WS$"
-      - ".*WT$"
-      - ".*WW$"
+    source: nasdaq_public
+    allowed_asset_types:
+      - common_stock
+      - ordinary_share
+      - adr_ads
+      - unknown_equity_like
+    allow_adr_ads: true
+    require_not_etf: true
+    require_not_test_issue: true
 
 data:
   source: nasdaq_public

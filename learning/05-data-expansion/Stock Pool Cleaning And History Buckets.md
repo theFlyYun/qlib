@@ -8,7 +8,7 @@
 
 ## 股票池清洗
 
-第一版清洗只使用当前可获得的 `symbol` 和 `name` 文本规则，不接商业证券主数据。
+第一版清洗已经升级为轻量证券主数据层。它仍然使用 Nasdaq 免费公开字段，不是商业级证券主数据，但会显式输出 `security_master.csv` 和 `security_master_exclusions.csv`。
 
 默认排除：
 
@@ -32,7 +32,7 @@ Class A / B / C Common Stock
 American Depositary Shares
 ```
 
-注意：`American Depositary Shares` 暂时保留，因为它仍是权益证券；但后续可以单独观察 ADR/ADS 是否需要分组或剔除。
+注意：`American Depositary Shares` 暂时保留，因为它仍是权益证券；但后续可以单独观察 ADR/ADS 是否需要分组或剔除。详细解释见 [[Security Master Data]]。
 
 ## 历史长度分桶
 
@@ -107,21 +107,16 @@ lt_2y：1
 analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_lgbm_10y_clean_bucket_top10.yaml
 ```
 
-本次股票池清洗剔除：
+本次证券主数据剔除：
 
 ```text
-总剔除：439
-name:warrant：228
-name:preferred：101
-symbol:.*W$：45
-name:notes：34
-name:unit：13
-name:right：5
-name:depositary_shares：5
-symbol:.*WT$：3
-symbol:.*WS$：3
-name:debenture：1
-name:bond：1
+总剔除：443
+warrant：279
+preferred：104
+debt：36
+unit：15
+right：5
+depositary_share：4
 ```
 
 流动性过滤后，最新日可预测股票分桶：
@@ -145,61 +140,61 @@ lt_2y：1
 本次 Top10：
 
 ```text
-AXTI
 AAOI
-CHTR
-LBRDK
-FLY
-NBIS
-HUT
-GTX
-XMTR
-RKLB
+IBRX
+LUNR
+AXTI
+FLEX
+SNDK
+CELC
+QS
+CORZ
+LQDA
 ```
 
 最终 Top10 sector 分布：
 
 ```text
-Technology：3
-Telecommunications：2
-Industrials：2
+Technology：4
+Health Care：3
+Industrials：1
+Miscellaneous：1
 Finance：1
-Consumer Discretionary：1
-Real Estate：1
 ```
 
 最终 Top10 industry 分布：
 
 ```text
 Semiconductors：2
-Cable & Other Pay Television Services：2
-Military/Government/Technical：2
-Computer Software: Programming Data Processing：1
+Industrial Machinery/Components：2
+Biotechnology: Biological Products (No Diagnostic Substances)：1
+Electrical Products：1
+Electronic Components：1
+Medical Specialities：1
 Finance: Consumer Services：1
-Auto Parts:O.E.M.：1
-Real Estate：1
+Biotechnology: Pharmaceutical Preparations：1
 ```
 
 ## 如何解读
 
 桶内排名不是改变分数，而是改变候选组合的名额结构。
 
-比如 `FLY` 属于 `lt_2y` 桶，它能进入最终 Top10，不是因为它和完整 10 年股票直接争到前 10，而是因为少于 2 年桶被允许保留 1 个观察名额。
+比如 `SNDK` 属于 `lt_2y` 桶，它能进入最终 Top10，不是因为它和完整 10 年股票直接争到前 10，而是因为少于 2 年桶被允许保留 1 个观察名额。
 
 这让最终列表更像一个受控研究样本，而不是无约束模型榜单。
 
-行业名额约束进一步控制了行业集中度。上一版 Top10 里 Technology 曾经有 6 只；加入约束和流动性过滤后，Technology 为 3 只，Semiconductors 为 2 只。
+行业名额约束进一步控制了行业集中度。上一版 Top10 里 Technology 曾经有 6 只；加入证券主数据、流动性过滤和行业约束后，Technology 为 4 只，Semiconductors 为 2 只。
 
 ## 遗留问题
 
-第一版清洗是文本规则，不能替代专业证券主数据。
+当前证券主数据仍来自免费公开字段，不能替代专业证券主数据。
 
 后续还需要继续处理：
 
 ```text
 ADR/ADS 是否单独分组
 更细的流动性分层
-更可靠的证券主数据
+更可靠的历史 PIT 证券主数据
 未来 5 日标签
 成本后回测
 ```
@@ -208,6 +203,7 @@ ADR/ADS 是否单独分组
 
 [[Short History Evaluation And EDGAR Full Run]]
 [[SEC EDGAR Fundamentals Integration]]
+[[Security Master Data]]
 [[Liquidity Filtering]]
 [[Industry Features And Relative Ranking]]
 [[TopK Strategy]]

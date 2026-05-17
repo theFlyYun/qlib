@@ -82,6 +82,12 @@ def validate_config(config: dict[str, Any]) -> None:
         raise ValueError("supported data.source values: nasdaq_public, norgate")
     if source == "nasdaq_public" and config["universe"]["exchange"] != "NASDAQ":
         raise ValueError("nasdaq_public currently supports universe.exchange: NASDAQ")
+    security_master = config["universe"].get("security_master", {})
+    if security_master:
+        if security_master.get("enabled") and source != "nasdaq_public":
+            raise ValueError("universe.security_master currently supports data.source: nasdaq_public")
+        if security_master.get("enabled") and not security_master.get("allowed_asset_types"):
+            raise ValueError("enabled universe.security_master requires allowed_asset_types")
     if source == "nasdaq_public":
         fixed_window = bool(config["data"].get("start_date") or config["data"].get("end_date"))
         if fixed_window:
@@ -218,6 +224,8 @@ def build_paths(config: dict[str, Any]) -> dict[str, Path]:
         "qlib_dir": output_dir / "qlib_data",
         "universe_csv": output_dir / "universe.csv",
         "universe_exclusions_csv": output_dir / "universe_exclusions.csv",
+        "security_master_csv": output_dir / "security_master.csv",
+        "security_master_exclusions_csv": output_dir / "security_master_exclusions.csv",
         "failures_csv": output_dir / "download_failures.csv",
         "membership_csv": output_dir / "membership.csv",
         "history_buckets_csv": output_dir / "history_buckets.csv",
@@ -505,6 +513,12 @@ def fmt_optional_money(value: Any) -> str:
     return fmt_money(numeric)
 
 
+def fmt_optional_text(value: Any) -> str:
+    if value is None or pd.isna(value):
+        return ""
+    return str(value).replace("|", "/")
+
+
 def format_yaml_block(value: Any) -> list[str]:
     dumped = yaml.safe_dump(value, allow_unicode=True, sort_keys=False).strip()
     return ["```yaml", dumped, "```"]
@@ -520,8 +534,20 @@ def write_report(
     top_n = int(config["report"]["top_n"])
     top_predictions = predictions.head(top_n)
     model_kwargs = config["model"]["kwargs"]
+    security_master = read_optional_csv(paths["security_master_csv"])
+    security_master_exclusions = read_optional_csv(paths["security_master_exclusions_csv"])
     universe_exclusions = read_optional_csv(paths["universe_exclusions_csv"])
     liquidity_exclusions = read_optional_csv(paths["liquidity_exclusions_csv"])
+    security_asset_counts = (
+        security_master["asset_type"].value_counts().to_dict()
+        if "asset_type" in security_master and not security_master.empty
+        else {}
+    )
+    security_exclusion_counts = (
+        security_master_exclusions["exclusion_reason"].value_counts().to_dict()
+        if "exclusion_reason" in security_master_exclusions and not security_master_exclusions.empty
+        else {}
+    )
     exclusion_reason_counts = (
         universe_exclusions["exclusion_reason"].value_counts().to_dict()
         if "exclusion_reason" in universe_exclusions and not universe_exclusions.empty
@@ -553,6 +579,26 @@ def write_report(
         "## 数据口径",
         "",
         *format_yaml_block(config["data"]),
+        "",
+        "## 证券主数据",
+        "",
+        *(
+            [
+                "- 证券主数据：已启用。",
+                "- 主数据规则：",
+                *format_yaml_block(config["universe"].get("security_master", {})),
+                f"- 主数据记录数：{len(security_master)}",
+                f"- 主数据剔除数：{len(security_master_exclusions)}",
+                f"- ADR/ADS 数量：{int(security_master['is_adr_ads'].fillna(False).sum()) if 'is_adr_ads' in security_master else 0}",
+                f"- Share class 数量：{int(security_master['is_share_class'].fillna(False).sum()) if 'is_share_class' in security_master else 0}",
+                "- 资产类型分布：",
+                *format_yaml_block(security_asset_counts),
+                "- 主数据剔除原因：",
+                *format_yaml_block(security_exclusion_counts),
+            ]
+            if config["universe"].get("security_master", {}).get("enabled", False)
+            else ["- 未启用。"]
+        ),
         "",
         "## 财报与估值特征",
         "",
@@ -595,8 +641,8 @@ def write_report(
     if meta.get("bucket_ranking_enabled", False):
         lines.extend(
             [
-                "| Rank | Symbol | Bucket | Bucket Rank | Global Rank | Name | Qlib Score | Market Cap | Sector | Industry |",
-                "|---:|---|---|---:|---:|---|---:|---:|---|---|",
+                "| Rank | Symbol | Bucket | Bucket Rank | Global Rank | Asset Type | ADR/ADS | Share Class | Name | Qlib Score | Market Cap | Sector | Industry |",
+                "|---:|---|---|---:|---:|---|---|---|---|---:|---:|---|---|",
             ]
         )
     else:
@@ -609,12 +655,15 @@ def write_report(
     for rank, (_, row) in enumerate(top_predictions.iterrows(), start=1):
         if meta.get("bucket_ranking_enabled", False):
             lines.append(
-                "| {rank} | {symbol} | {bucket} | {bucket_rank} | {global_rank} | {name} | {score:.8f} | {market_cap} | {sector} | {industry} |".format(
+                "| {rank} | {symbol} | {bucket} | {bucket_rank} | {global_rank} | {asset_type} | {is_adr_ads} | {share_class} | {name} | {score:.8f} | {market_cap} | {sector} | {industry} |".format(
                     rank=rank,
                     symbol=row.get("symbol", row.get("instrument", "N/A")),
                     bucket=row.get("history_bucket", "N/A"),
                     bucket_rank=row.get("bucket_rank", "N/A"),
                     global_rank=row.get("global_rank", "N/A"),
+                    asset_type=fmt_optional_text(row.get("asset_type")),
+                    is_adr_ads=fmt_optional_text(row.get("is_adr_ads")),
+                    share_class=fmt_optional_text(row.get("share_class")),
                     name=str(row.get("name", "")).replace("|", "/"),
                     score=float(row["score"]),
                     market_cap=fmt_optional_money(row.get("market_cap")),
@@ -717,6 +766,8 @@ def write_report(
             "## 输出文件",
             "",
             "- `universe.csv`：本次实验股票池。",
+            "- `security_master.csv`：本次实验证券主数据和证券类型分类。",
+            "- `security_master_exclusions.csv`：证券主数据层剔除记录。",
             "- `universe_exclusions.csv`：股票池清洗剔除记录；仅启用清洗时生成有效内容。",
             "- `membership.csv`：历史指数成分日级标记；仅 Norgate 等成分感知数据源生成有效内容。",
             "- `download_failures.csv`：下载失败或历史不足的股票。",

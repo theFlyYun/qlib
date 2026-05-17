@@ -159,32 +159,33 @@ RGC
 VFS
 ```
 
-流动性过滤后的最终 Top10：
+证券主数据和流动性过滤后的最新 Top10：
 
 ```text
-AXTI
 AAOI
-CHTR
-LBRDK
-FLY
-NBIS
-HUT
-GTX
-XMTR
-RKLB
+IBRX
+LUNR
+AXTI
+FLEX
+SNDK
+CELC
+QS
+CORZ
+LQDA
 ```
 
-本次 Test 日均 IC 为 `0.002960`，Rank IC 为 `0.006525`。这不是提升模型效果的结论，只说明在加入流动性过滤后，股票池和横截面样本发生了变化。
+本次 Test 日均 IC 为 `-0.000519`，Rank IC 为 `0.001712`。这不是模型能力变差或变好的直接结论，只说明在加入证券主数据和流动性过滤后，股票池和横截面样本发生了变化。
 
 ## 下一步
 
-进入第 3 条：证券主数据升级。
+进入第 4 条：未来 5 日收益标签。
 
-目标是减少文本规则判断证券类型的误差，引入更可靠的证券类型、上市状态、ADR/ADS 标记、share class、primary listing 等字段。
+目标是把当前 1 日收益标签改成更平滑的 5 日收益标签，并对比 IC、Rank IC 和 Top10 稳定性。
 
 相关笔记：
 
 [[Stock Pool Cleaning And History Buckets]]
+[[Security Master Data]]
 [[Portfolio Risk Control]]
 [[Backtest And Costs]]
 [[Data Scope And Sources]]

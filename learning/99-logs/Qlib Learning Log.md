@@ -181,6 +181,20 @@
 
 详细笔记：[[Liquidity Filtering]]
 
+## 2026-05-17 证券主数据升级
+
+- 学习主题：把证券类型判断从隐含文本规则升级为显式 `security_master.csv`。
+- 策略假设：普通股、ADR、权证、优先股、债券和 unit 不能混在同一个普通股模型候选池里。
+- 当前动作：合并 Nasdaq listed 元数据和 Nasdaq screener 字段，生成 `security_master.csv` 与 `security_master_exclusions.csv`。
+- 当前分类：`common_stock`、`ordinary_share`、`adr_ads`、`unknown_equity_like` 允许进入；`warrant`、`preferred`、`debt`、`unit`、`right`、`depositary_share` 剔除。
+- 本次结果：主数据记录 3533 条，剔除 443 条，其中 warrant 279 条、preferred 104 条、debt 36 条。
+- 本次结果：识别 ADR/ADS 162 条，share class 571 条。
+- 最终 Top10：`AAOI`、`IBRX`、`LUNR`、`AXTI`、`FLEX`、`SNDK`、`CELC`、`QS`、`CORZ`、`LQDA`。
+- 当前判断：这一步改善的是股票池口径，不是新增模型特征，也不是历史 PIT 主数据。
+- 下一步：做未来 5 日收益标签，对比 1 日标签和 5 日标签的 IC、Rank IC 与 Top10 稳定性。
+
+详细笔记：[[Security Master Data]]
+
 ## 复盘原则
 
 - 先写假设，再看结果。
