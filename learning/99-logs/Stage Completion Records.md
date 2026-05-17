@@ -189,3 +189,88 @@ analysis/nasdaq_top500_score/runs/nasdaq_alpha158_lgbm_1d/resolved_config.yaml
 learning/03-modeling/Model Validation.md
 learning/99-logs/Stage Completion Records.md
 ```
+
+## 2026-05-17 阶段 E：数据口径升级
+
+目标：
+
+为后续 40 年历史数据、多源特征、行业分组和严谨回测建立数据验收标准。
+
+为什么要做：
+
+当前 `nasdaq_public` 数据源适合学习 Qlib 流水线，但不能解决复权、退市、动态股票池、PIT 财报和数据版本追溯问题。如果这些口径不先定清楚，后续提升 IC 或做 TopK 回测都可能只是数据偏差。
+
+输入数据：
+
+```text
+当前 Nasdaq/Qlib 实验结果
+Qlib 官方数据与 PIT 文档
+WRDS CRSP / Compustat 官方说明
+Norgate、SEC EDGAR、FRED、Nasdaq Data Link 官方说明
+```
+
+核心概念：
+
+```text
+学习数据 vs 严谨研究数据
+复权
+退市股票
+动态成分
+PIT 财报
+数据版本
+可审计复盘
+```
+
+实验动作：
+
+```text
+新增 Data Source Upgrade Plan
+补充 Data Scope And Sources 的验收标准
+补充 Financial Valuation Industry Macro News 的特征接入顺序
+把数据源升级加入学习入口
+明确短期、中期、长期数据路线
+```
+
+评价指标：
+
+```text
+能区分学习数据和严谨研究数据
+每类数据都有字段、口径风险和接入优先级
+明确 Qlib 负责研究框架，不负责提供完整美股 40 年数据库
+给出下一阶段可执行建议
+```
+
+结果解读：
+
+阶段 E 不追求立刻接入所有数据，而是先建立数据验收表。当前建议是双轨路线：
+
+```text
+短期：继续用 nasdaq_public 学习流水线
+中期：个人可落地路线用 Norgate / Nasdaq Data Link / SEC EDGAR / FRED
+长期：严谨研究路线用 WRDS CRSP + Compustat + FRED/ALFRED
+```
+
+遗留问题：
+
+```text
+尚未选择实际付费或机构数据源
+尚未实现 data.source 的多数据源适配
+尚未接入退市股票和动态成分
+尚未把 PIT 财报转换为 Qlib 可训练特征
+尚未验证 40 年数据的本地存储和运行成本
+```
+
+下一阶段准备：
+
+先选一个价格和股票池数据源路线。确认是否能覆盖退市和动态成分后，再回到阶段 C，对比 1 日标签和 5 日标签。
+
+产出文件：
+
+```text
+learning/05-data-expansion/Data Source Upgrade Plan.md
+learning/05-data-expansion/Data Scope And Sources.md
+learning/05-data-expansion/Financial Valuation Industry Macro News.md
+learning/README.md
+learning/00-start-here/Qlib Quant Learning Index.md
+learning/99-logs/Stage Completion Records.md
+```

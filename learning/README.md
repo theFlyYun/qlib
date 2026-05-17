@@ -48,6 +48,7 @@
 
 ### 05 Data Expansion
 
+- [Data Source Upgrade Plan](<05-data-expansion/Data Source Upgrade Plan.md>)
 - [Data Scope And Sources](<05-data-expansion/Data Scope And Sources.md>)
 - [Financial Valuation Industry Macro News](<05-data-expansion/Financial Valuation Industry Macro News.md>)
 
@@ -86,8 +87,8 @@
 
 1. 阶段 A：学习文档层级整理。
 2. 阶段 B：配置化研究流水线。
-3. 阶段 C：标签升级为未来 5 日收益。
-4. 阶段 D：股票池清洗与分行业。
-5. 阶段 E：数据口径升级。
+3. 阶段 E：数据口径升级。
+4. 阶段 C：标签升级为未来 5 日收益。
+5. 阶段 D：股票池清洗与分行业。
 6. 阶段 F：TopK 回测与成本后评估。
 7. 阶段 G：财报、估值、行业、宏观、新闻特征扩展。
