@@ -3,35 +3,59 @@
 这个目录包含两类学习实验：
 
 - `build_nasdaq_score.py`：透明规则打分，不经过 Qlib 模型。
-- `run_qlib_alpha158_lightgbm.py`：真正走 Qlib 数据格式、Alpha158 特征和 LightGBM 训练流程。
+- `run_qlib_alpha158_lightgbm.py`：配置驱动的 Qlib Alpha158 + LightGBM 训练流程。
 
-## 关键结果
+## 配置化运行
 
-规则打分报告：
-
-```text
-nasdaq_top5_report.md
-```
-
-Qlib 模型报告：
+默认配置文件：
 
 ```text
-nasdaq_qlib_lightgbm_top5_report.md
+analysis/nasdaq_top500_score/configs/nasdaq_alpha158_lgbm_1d.yaml
 ```
 
-当前 Qlib 模型的测试期指标较弱：
-
-```text
-Test 日均 IC:      -0.009905
-Test 日均 Rank IC: -0.003036
-```
-
-这说明当前流程可以作为学习样例，但不能作为买入建议。
-
-## 复跑
+复跑默认实验：
 
 ```bash
-.venv/bin/python -u analysis/nasdaq_top500_score/run_qlib_alpha158_lightgbm.py
+.venv/bin/python -u analysis/nasdaq_top500_score/run_qlib_alpha158_lightgbm.py \
+  --config analysis/nasdaq_top500_score/configs/nasdaq_alpha158_lgbm_1d.yaml
 ```
 
-脚本会重新下载 Nasdaq 历史日线、转换 Qlib 数据并训练模型。生成的逐股票 CSV、Qlib bin 数据和缓存默认不提交到 Git。
+以后要改股票池规模、数据回看天数、标签表达式、切分比例、模型参数和 TopN 报告数量，优先改 YAML，不直接改脚本。
+
+## 输出目录
+
+每个实验输出到独立目录：
+
+```text
+analysis/nasdaq_top500_score/runs/<experiment.name>/
+```
+
+默认实验会生成：
+
+```text
+runs/nasdaq_alpha158_lgbm_1d/universe.csv
+runs/nasdaq_alpha158_lgbm_1d/download_failures.csv
+runs/nasdaq_alpha158_lgbm_1d/predictions.csv
+runs/nasdaq_alpha158_lgbm_1d/report.md
+runs/nasdaq_alpha158_lgbm_1d/resolved_config.yaml
+runs/nasdaq_alpha158_lgbm_1d/qlib_source_csv/
+runs/nasdaq_alpha158_lgbm_1d/qlib_data/
+```
+
+`resolved_config.yaml` 是复盘入口：它记录这次实验实际使用的股票池、标签、特征、切分和模型参数。
+
+## 当前学习口径
+
+默认实验仍然是 1 日标签：
+
+```text
+Ref($close, -2) / Ref($close, -1) - 1
+```
+
+阶段 B 只解决“实验可复现、可比较、可扩展”，不追求提升 IC。阶段 C 再新增未来 5 日收益标签做对比。
+
+## 历史报告
+
+目录下的 `nasdaq_top5_report.md` 和 `nasdaq_qlib_lightgbm_top5_report.md` 是早期学习报告，保留用于对照。新的 Qlib 实验报告以后看 `runs/<experiment.name>/report.md`。
+
+生成的逐股票 CSV、Qlib bin 数据、缓存和 `runs/` 默认不提交到 Git。

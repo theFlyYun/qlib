@@ -61,6 +61,20 @@ python -m pdb qlib/cli/run.py examples/benchmarks/LightGBM/workflow_config_light
 python examples/workflow_by_code.py
 ```
 
+运行 Nasdaq 配置化学习实验：
+
+```bash
+.venv/bin/python -u analysis/nasdaq_top500_score/run_qlib_alpha158_lightgbm.py \
+  --config analysis/nasdaq_top500_score/configs/nasdaq_alpha158_lgbm_1d.yaml
+```
+
+复盘本次实验优先看：
+
+```bash
+sed -n '1,220p' analysis/nasdaq_top500_score/runs/nasdaq_alpha158_lgbm_1d/report.md
+sed -n '1,160p' analysis/nasdaq_top500_score/runs/nasdaq_alpha158_lgbm_1d/resolved_config.yaml
+```
+
 ## 测试与验证
 
 烟测：

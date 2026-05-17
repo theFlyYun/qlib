@@ -14,27 +14,27 @@
 - 能读懂回测结果中的收益、超额收益、回撤、换手和交易成本。
 - 能把每次实验变成可复盘的策略假设，而不是只看收益曲线。
 
-## 4 周学习路线
+## 分层学习路线
 
-完整路线先看 [[Quant Learning Roadmap]]。下面 4 周是入门压缩版，用来跑通第一轮认知闭环。
+完整路线先看 [[Quant Learning Roadmap]]。当前 `learning/` 已按阶段分层：
 
-1. [[Week 1 - Quant And Qlib Basics]]
-   - 建立量化交易框架，理解策略从哪里来。
-2. [[Week 2 - Data Dataset And Features]]
-   - 学数据源、数据质量和因子原理。
-3. [[Week 3 - Model Workflow And Experiment Tracking]]
-   - 学信号、模型和样本外验证。
-4. [[Week 4 - Strategy Backtest And Custom Extension]]
-   - 学组合构建、回测解释和风控边界。
+1. 基础：[[Week 1 - Quant And Qlib Basics]]、[[Week 2 - Data Dataset And Features]]
+2. 信号与标签：[[Alpha158 And Features]]、[[Labels And Future Returns]]、[[IC And Rank IC]]
+3. 模型：[[LightGBM Training Notes]]、[[Model Validation]]
+4. 策略回测：[[TopK Strategy]]、[[Backtest And Costs]]
+5. 数据扩展：[[Data Scope And Sources]]、[[Financial Valuation Industry Macro News]]
+6. 组合风控：[[Industry Neutralization]]、[[Portfolio Risk Control]]
+7. 案例复盘：[[2026-05-17 Nasdaq Qlib Model]]、[[Sifang 601126 Case Study]]
 
 ## 快速入口
 
 - 完整路线：[[Quant Learning Roadmap]]
-- 今日复盘：[[Learning Session - 2026-05-17 Nasdaq Qlib Model]]
+- 今日复盘：[[2026-05-17 Nasdaq Qlib Model]]
 - 外部资料：[[Quant Resources]]
 - 概念地图：[[Qlib Source Map]]
 - 实验命令：[[Qlib Commands]]
 - 学习记录：[[Qlib Learning Log]]
+- 阶段记录：[[Stage Completion Records]]
 
 ## 当前本地基线
 
@@ -60,9 +60,22 @@
 [[Week 2 - Data Dataset And Features]]
 [[Week 3 - Model Workflow And Experiment Tracking]]
 [[Week 4 - Strategy Backtest And Custom Extension]]
+[[Alpha158 And Features]]
+[[Labels And Future Returns]]
+[[IC And Rank IC]]
+[[LightGBM Training Notes]]
+[[Model Validation]]
+[[TopK Strategy]]
+[[Backtest And Costs]]
+[[Data Scope And Sources]]
+[[Financial Valuation Industry Macro News]]
+[[Industry Neutralization]]
+[[Portfolio Risk Control]]
 [[Quant Learning Roadmap]]
-[[Learning Session - 2026-05-17 Nasdaq Qlib Model]]
+[[2026-05-17 Nasdaq Qlib Model]]
+[[Sifang 601126 Case Study]]
 [[Quant Resources]]
 [[Qlib Commands]]
 [[Qlib Source Map]]
 [[Qlib Learning Log]]
+[[Stage Completion Records]]

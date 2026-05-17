@@ -50,7 +50,7 @@
 - 遗留问题：数据历史太短、股票池复杂、缺少财报/估值/行业/宏观/新闻、未做成本后 TopK 回测。
 - 下一步验证：配置化流水线、40 年数据方案、5 日收益标签、行业内排序、PIT 财报与估值特征、完整组合回测。
 
-详细笔记：[[Learning Session - 2026-05-17 Nasdaq Qlib Model]]
+详细笔记：[[2026-05-17 Nasdaq Qlib Model]]
 
 ## 复盘原则
 
@@ -65,4 +65,5 @@
 [[Qlib Commands]]
 [[Qlib Source Map]]
 [[Week 1 - Quant And Qlib Basics]]
-[[Learning Session - 2026-05-17 Nasdaq Qlib Model]]
+[[2026-05-17 Nasdaq Qlib Model]]
+[[Stage Completion Records]]

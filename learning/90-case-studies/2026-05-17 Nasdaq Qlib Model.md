@@ -1,4 +1,4 @@
-# Learning Session - 2026-05-17 Nasdaq Qlib Model
+# 2026-05-17 Nasdaq Qlib Model
 
 这份笔记总结今天围绕 Qlib、Alpha158、TopK、IC、数据口径和美股 Nasdaq 选股模型的一轮学习。它是学习复盘，不是投资建议。
 

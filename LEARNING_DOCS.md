@@ -27,19 +27,23 @@ iOS 阅读方式：
 learning/
 ```
 
-包含：
+当前已按阶段分层：
 
-- `README.md`
-- `Quant Learning Roadmap.md`
-- `Quant Resources.md`
-- `Qlib Quant Learning Index.md`
-- `Week 1 - Quant And Qlib Basics.md`
-- `Week 2 - Data Dataset And Features.md`
-- `Week 3 - Model Workflow And Experiment Tracking.md`
-- `Week 4 - Strategy Backtest And Custom Extension.md`
-- `Qlib Source Map.md`
-- `Qlib Commands.md`
-- `Qlib Learning Log.md`
+- `00-start-here/`：总入口、路线、资源、命令和源码地图。
+- `01-foundation/`：市场、交易和数据基础。
+- `02-signals-and-labels/`：Alpha158、标签、IC 和 Rank IC。
+- `03-modeling/`：LightGBM、模型训练和验证。
+- `04-strategy-backtest/`：TopK、回测和交易成本。
+- `05-data-expansion/`：40 年数据、多源数据和数据口径。
+- `06-portfolio-risk/`：行业中性化和组合风控。
+- `90-case-studies/`：四方股份、Nasdaq/Qlib 等案例。
+- `99-logs/`：学习日志和阶段完成记录。
+
+每做完一个阶段，都要更新：
+
+```text
+learning/99-logs/Stage Completion Records.md
+```
 
 ## 已废弃方式：iCloud Obsidian Vault
 
