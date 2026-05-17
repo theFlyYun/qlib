@@ -948,3 +948,123 @@ learning/05-data-expansion/Stock Pool Cleaning And History Buckets.md
 learning/99-logs/Qlib Learning Log.md
 learning/99-logs/Stage Completion Records.md
 ```
+
+## 2026-05-17 阶段 D.2：行业名额约束
+
+目标：
+
+在股票池清洗和历史长度分桶之后，继续控制最终 Top10 的行业集中度。
+
+为什么要做：
+
+上一版桶内 Top10 虽然解决了特殊证券和短历史股票的问题，但最终名单里 Technology 仍然偏集中。模型分数不会自动理解组合分散度，所以需要在最终选择阶段增加 sector / industry 上限。
+
+输入数据：
+
+```text
+股票池：当前 Nasdaq 清洗后市值前 500
+固定行情窗口：2016-05-17 到 2026-05-17
+财报来源：SEC EDGAR 10-K / 10-Q / companyfacts
+标签：未来 1 日收益
+模型：Alpha158 + EDGAR + LightGBM
+最终选择：历史长度桶名额 + 行业名额约束
+```
+
+核心概念：
+
+```text
+统一模型 score
+历史长度桶名额
+sector 上限
+industry 上限
+约束后回补
+```
+
+实验动作：
+
+```text
+新增 industry_constraints 配置
+select_bucketed_top 支持约束选择
+报告写入行业约束、sector 分布和 industry 分布
+新增行业约束单元测试
+复跑 clean_bucket_top10 配置
+```
+
+评价指标：
+
+```text
+py_compile 通过
+10 个相关单元测试通过
+所有 YAML 配置可解析
+真实配置运行成功
+最终 Top10 仍符合 4/3/2/1 桶名额
+最终 Top10 满足 sector<=4、industry<=2
+大型 runs 输出继续不进入 Git
+```
+
+结果解读：
+
+```text
+Test 日均 IC：0.015196
+Test 日均 Rank IC：0.004995
+参与 IC 计算交易日：593
+最新日可预测股票数：482
+```
+
+最终 Top10：
+
+```text
+full_10y：AMD, SIMO, PLUG, QCOM
+5_10y：NBIS, GTX, LQDA
+2_5y：LUNR, RGC
+lt_2y：SIRI
+```
+
+最终 sector 分布：
+
+```text
+Technology：4
+Consumer Discretionary：2
+Health Care：2
+Energy：1
+Industrials：1
+```
+
+最终 industry 分布：
+
+```text
+Semiconductors：2
+Industrial Machinery/Components：2
+Computer Software: Programming Data Processing：1
+Radio And Television Broadcasting And Communications Equipment：1
+Auto Parts:O.E.M.：1
+Biotechnology: Pharmaceutical Preparations：1
+Medicinal Chemicals and Botanical Products：1
+Broadcasting：1
+```
+
+遗留问题：
+
+```text
+行业分类仍来自当前 Nasdaq public snapshot，不是历史 PIT 行业口径
+行业约束只控制最终名单，不等于行业中性回测
+尚未过滤低流动性股票
+尚未使用专业证券主数据
+尚未做未来 5 日标签和成本后回测
+```
+
+下一阶段准备：
+
+进入第 2 条：流动性过滤。默认先用日线数据计算近 20 日和近 60 日成交额、零成交日、价格下限等指标，生成 `liquidity_profile.csv`，并让低流动性股票不能进入最终 Top10。
+
+产出文件：
+
+```text
+analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_lgbm_10y_clean_bucket_top10.yaml
+analysis/nasdaq_top500_score/run_qlib_alpha158_lightgbm.py
+analysis/nasdaq_top500_score/selection/history_buckets.py
+tests/analysis/test_stock_pool_selection.py
+learning/05-data-expansion/Stock Pool Cleaning And History Buckets.md
+learning/99-logs/Qlib Learning Log.md
+learning/99-logs/Stage Completion Records.md
+```

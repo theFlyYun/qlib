@@ -154,6 +154,19 @@
 
 详细笔记：[[Stock Pool Cleaning And History Buckets]]
 
+## 2026-05-17 行业名额约束
+
+- 学习主题：在桶内 Top10 基础上继续控制行业集中度。
+- 策略假设：即使所有股票都来自同一个模型 `score`，最终候选名单也不应过度集中在单一 sector 或 industry。
+- 当前动作：在 `nasdaq_alpha158_edgar_lgbm_10y_clean_bucket_top10.yaml` 中启用 `industry_constraints`，默认单一 sector 最多 4 只、单一 industry 最多 2 只。
+- 关键规则：模型训练、标签、Alpha158、EDGAR 特征都不变；行业约束只发生在最终 Top10 选择阶段。
+- 本次结果：最终 Top10 的 sector 分布为 `Technology=4`、`Consumer Discretionary=2`、`Health Care=2`、`Energy=1`、`Industrials=1`。
+- 本次结果：最终 Top10 的 industry 分布中，`Semiconductors=2`、`Industrial Machinery/Components=2`，其余行业各 1 只。
+- 当前判断：行业约束能降低榜单集中度，但仍不是成本后回测，也不是历史 PIT 行业分类。
+- 下一步：加入流动性过滤，避免低成交额、低换手或交易不连续的股票进入候选组合。
+
+详细笔记：[[Stock Pool Cleaning And History Buckets]]
+
 ## 复盘原则
 
 - 先写假设，再看结果。

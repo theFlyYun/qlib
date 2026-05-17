@@ -57,6 +57,11 @@ bucket_ranking:
     - 2_5y
     - lt_2y
 
+industry_constraints:
+  enabled: true
+  max_sector: 4
+  max_industry: 2
+
 label:
   expression: Ref($close, -2) / Ref($close, -1) - 1
   name: LABEL0

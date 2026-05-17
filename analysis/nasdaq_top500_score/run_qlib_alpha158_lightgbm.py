@@ -132,6 +132,7 @@ def validate_config(config: dict[str, Any]) -> None:
     else:
         validate_date_split(config["split"])
     validate_bucket_ranking(config)
+    validate_industry_constraints(config)
 
 
 def validate_bucket_ranking(config: dict[str, Any]) -> None:
@@ -148,6 +149,19 @@ def validate_bucket_ranking(config: dict[str, Any]) -> None:
     quota_total = sum(int(value) for value in quotas.values())
     if quota_total != top_n:
         raise ValueError("bucket_ranking quota total must equal report.top_n")
+
+
+def validate_industry_constraints(config: dict[str, Any]) -> None:
+    constraints = config.get("industry_constraints", {})
+    if not constraints or not constraints.get("enabled", False):
+        return
+    if not config.get("bucket_ranking", {}).get("enabled", False):
+        raise ValueError("enabled industry_constraints requires bucket_ranking.enabled: true")
+    for key in ["max_sector", "max_industry"]:
+        if key not in constraints:
+            raise ValueError(f"enabled industry_constraints requires {key}")
+        if int(constraints[key]) <= 0:
+            raise ValueError(f"industry_constraints.{key} must be positive")
 
 
 def date_value(value: Any) -> pd.Timestamp:
@@ -418,6 +432,10 @@ def train_and_predict(
         "history_bucket_counts": bucket_meta["bucket_counts"],
         "bucket_quotas": bucket_meta["bucket_quotas"],
         "selected_bucket_counts": bucket_meta["selected_bucket_counts"],
+        "industry_constraints_enabled": bool(bucket_meta.get("industry_constraints_enabled", False)),
+        "industry_constraints": bucket_meta.get("industry_constraints", {}),
+        "selected_sector_counts": bucket_meta.get("selected_sector_counts", {}),
+        "selected_industry_counts": bucket_meta.get("selected_industry_counts", {}),
         "top_sector_counts": top_predictions["sector"].fillna("UNKNOWN").value_counts().to_dict()
         if "sector" in top_predictions
         else {},
@@ -621,6 +639,16 @@ def write_report(
                     *format_yaml_block(meta.get("history_bucket_counts", {})),
                     "- 最终 TopN 分桶：",
                     *format_yaml_block(meta.get("selected_bucket_counts", {})),
+                    "- 行业名额约束：",
+                    *(
+                        format_yaml_block(meta.get("industry_constraints", {}))
+                        if meta.get("industry_constraints_enabled", False)
+                        else ["未启用。"]
+                    ),
+                    "- 最终 TopN sector 分布：",
+                    *format_yaml_block(meta.get("selected_sector_counts", {})),
+                    "- 最终 TopN industry 分布：",
+                    *format_yaml_block(meta.get("selected_industry_counts", {})),
                 ]
                 if meta.get("bucket_ranking_enabled", False)
                 else ["- 未启用。"]

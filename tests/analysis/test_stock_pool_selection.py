@@ -101,6 +101,41 @@ def test_bucketed_top10_refills_shortfall_by_longer_history_first(tmp_path: Path
     assert selected["history_bucket"].value_counts().to_dict() == {"full_10y": 6, "5_10y": 3, "2_5y": 1}
 
 
+def test_bucketed_top10_respects_sector_and_industry_constraints() -> None:
+    predictions = pd.DataFrame(
+        [
+            {"symbol": "F0", "score": 100, "history_bucket": "full_10y", "sector": "Technology", "industry": "Semiconductors"},
+            {"symbol": "F1", "score": 99, "history_bucket": "full_10y", "sector": "Technology", "industry": "Semiconductors"},
+            {"symbol": "F2", "score": 98, "history_bucket": "full_10y", "sector": "Technology", "industry": "Semiconductors"},
+            {"symbol": "F3", "score": 97, "history_bucket": "full_10y", "sector": "Technology", "industry": "Software"},
+            {"symbol": "F4", "score": 96, "history_bucket": "full_10y", "sector": "Energy", "industry": "Machinery"},
+            {"symbol": "F5", "score": 95, "history_bucket": "full_10y", "sector": "Financial Services", "industry": "Banks"},
+            {"symbol": "M0", "score": 94, "history_bucket": "5_10y", "sector": "Technology", "industry": "Software"},
+            {"symbol": "M1", "score": 93, "history_bucket": "5_10y", "sector": "Technology", "industry": "Software"},
+            {"symbol": "M2", "score": 92, "history_bucket": "5_10y", "sector": "Industrials", "industry": "Aerospace"},
+            {"symbol": "S0", "score": 91, "history_bucket": "2_5y", "sector": "Health Care", "industry": "Biotech"},
+            {"symbol": "S1", "score": 90, "history_bucket": "2_5y", "sector": "Consumer Discretionary", "industry": "Auto Parts"},
+            {"symbol": "N0", "score": 89, "history_bucket": "lt_2y", "sector": "Basic Materials", "industry": "Metals"},
+        ]
+    )
+    ranking_config = {
+        "quotas": {"full_10y": 4, "5_10y": 3, "2_5y": 2, "lt_2y": 1},
+        "refill_order": ["full_10y", "5_10y", "2_5y", "lt_2y"],
+    }
+
+    selected = select_bucketed_top(
+        predictions,
+        ranking_config,
+        10,
+        {"enabled": True, "max_sector": 4, "max_industry": 2},
+    )
+
+    assert len(selected) == 10
+    assert "F2" not in set(selected["symbol"])
+    assert selected["sector"].value_counts().max() <= 4
+    assert selected["industry"].value_counts().max() <= 2
+
+
 def test_apply_bucket_ranking_writes_bucket_outputs(tmp_path: Path) -> None:
     predictions = pd.DataFrame(
         [

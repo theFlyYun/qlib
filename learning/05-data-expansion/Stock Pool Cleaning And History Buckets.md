@@ -77,6 +77,28 @@ lt_2y：1
 
 如果某个桶不够名额，空位优先回补给更长历史的桶。
 
+## 行业名额约束
+
+桶内名额解决的是“历史长度结构”，但不能防止最终名单集中在单一行业。
+
+本次在桶内 Top10 之后继续加一层行业约束：
+
+```text
+单一 sector 最多 4 只
+单一 industry 最多 2 只
+```
+
+这一步不改变模型输入、标签或 `score`。它只改变最终候选组合的选股规则：
+
+```text
+先按统一 score 在桶内排序
+再按 4/3/2/1 桶名额依次选择
+如果候选股票会突破 sector / industry 上限，就跳过它
+空余名额继续从后续候选里补足
+```
+
+所以行业约束不是“重新训练模型”，而是“把模型榜单变成更分散的候选组合”。
+
 ## 本次实验结果
 
 运行配置：
@@ -124,24 +146,49 @@ lt_2y：1
 
 ```text
 AMD
-SNDK
 SIMO
 NBIS
 PLUG
-MXL
-BILI
+QCOM
 LUNR
 GTX
+LQDA
 RGC
+SIRI
+```
+
+最终 Top10 sector 分布：
+
+```text
+Technology：4
+Consumer Discretionary：2
+Health Care：2
+Energy：1
+Industrials：1
+```
+
+最终 Top10 industry 分布：
+
+```text
+Semiconductors：2
+Industrial Machinery/Components：2
+Computer Software: Programming Data Processing：1
+Radio And Television Broadcasting And Communications Equipment：1
+Auto Parts:O.E.M.：1
+Biotechnology: Pharmaceutical Preparations：1
+Medicinal Chemicals and Botanical Products：1
+Broadcasting：1
 ```
 
 ## 如何解读
 
 桶内排名不是改变分数，而是改变候选组合的名额结构。
 
-比如 `SNDK` 属于 `lt_2y` 桶，它能进入最终 Top10，不是因为它和完整 10 年股票直接争到前 10，而是因为少于 2 年桶被允许保留 1 个观察名额。
+比如 `SIRI` 属于 `lt_2y` 桶，它能进入最终 Top10，不是因为它和完整 10 年股票直接争到前 10，而是因为少于 2 年桶被允许保留 1 个观察名额。
 
 这让最终列表更像一个受控研究样本，而不是无约束模型榜单。
+
+行业名额约束进一步控制了行业集中度。上一版 Top10 里 Technology 有 6 只；加入约束后，Technology 被限制为 4 只，Semiconductors 被限制为 2 只。
 
 ## 遗留问题
 
@@ -152,7 +199,7 @@ RGC
 ```text
 ADR/ADS 是否单独分组
 低流动性过滤
-行业内 TopK 名额
+更可靠的证券主数据
 未来 5 日标签
 成本后回测
 ```

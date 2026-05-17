@@ -63,7 +63,7 @@ analysis/nasdaq_top500_score/runs/nasdaq_alpha158_edgar_lgbm_10y_eval_all/report
 
 本次生成 895,760 行日频 EDGAR PIT 特征，覆盖 420 只股票；最新日可预测 480 只股票。该目录属于大型实验产物，默认不提交 Git。
 
-固定 10 年窗口、股票池清洗、历史长度分桶、桶内 Top10 配置：
+固定 10 年窗口、股票池清洗、历史长度分桶、桶内 Top10 和行业名额约束配置：
 
 ```text
 analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_lgbm_10y_clean_bucket_top10.yaml
@@ -77,6 +77,8 @@ full_10y: 4
 2_5y: 2
 lt_2y: 1
 ```
+
+最终选择阶段还会限制单一 sector 最多 4 只、单一 industry 最多 2 只。模型训练和 `score` 不变，这个约束只影响最终候选组合的分散度。
 
 运行入口：
 
@@ -179,7 +181,7 @@ EDGAR 配置会额外生成 `fundamental_features.parquet`、`fundamental_failur
 
 行业配置会额外生成 `industry_features.parquet` 和 `industry_failures.csv`。
 
-清洗和分桶配置会额外生成 `universe_exclusions.csv`、`history_buckets.csv`、`bucketed_predictions.csv` 和 `selected_top10.csv`。
+清洗、分桶和行业约束配置会额外生成 `universe_exclusions.csv`、`history_buckets.csv`、`bucketed_predictions.csv` 和 `selected_top10.csv`。
 
 `resolved_config.yaml` 是复盘入口：它记录这次实验实际使用的股票池、标签、特征、切分和模型参数。
 
