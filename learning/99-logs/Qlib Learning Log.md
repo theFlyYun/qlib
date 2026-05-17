@@ -99,6 +99,18 @@
 
 详细笔记：[[Industry Features And Relative Ranking]]
 
+## 2026-05-17 固定 15 年窗口与真实 EDGAR 准备
+
+- 学习主题：把训练数据窗口固定为 `2011-05-17` 到 `2026-05-17`，并准备真实 SEC EDGAR 拉取。
+- 策略假设：后续比较不同特征和标签时，必须先固定训练/验证/测试时间段，否则结果会随运行日期漂移。
+- 使用数据：Nasdaq public 日线固定窗口；EDGAR smoke test 使用当前 Nasdaq 市值前 5。
+- 当前动作：新增固定窗口 baseline 配置，支持 `data.start_date/end_date` 和 `split.method: date`。
+- EDGAR 准备：真实拉取需要设置 `SEC_EDGAR_USER_AGENT`，先跑 5 只股票 smoke test，再扩大股票池。
+- 当前限制：Nasdaq public 股票池仍是当前静态市值前 500，不是历史动态成分，也不含退市股票。
+- 下一步：运行固定窗口 baseline，再设置 User-Agent 跑 EDGAR smoke test。
+
+详细笔记：[[Fixed Window And Real EDGAR Runbook]]
+
 ## 复盘原则
 
 - 先写假设，再看结果。

@@ -22,7 +22,7 @@
 2. 信号与标签：[[Alpha158 And Features]]、[[Labels And Future Returns]]、[[IC And Rank IC]]
 3. 模型：[[LightGBM Training Notes]]、[[Model Validation]]
 4. 策略回测：[[TopK Strategy]]、[[Backtest And Costs]]
-5. 数据扩展：[[Data Source Upgrade Plan]]、[[Norgate Data Integration]]、[[SEC EDGAR Fundamentals Integration]]、[[SEC EDGAR Technical Data Flow]]、[[Industry Features And Relative Ranking]]、[[Data Scope And Sources]]、[[Financial Valuation Industry Macro News]]
+5. 数据扩展：[[Data Source Upgrade Plan]]、[[Fixed Window And Real EDGAR Runbook]]、[[Norgate Data Integration]]、[[SEC EDGAR Fundamentals Integration]]、[[SEC EDGAR Technical Data Flow]]、[[Industry Features And Relative Ranking]]、[[Data Scope And Sources]]、[[Financial Valuation Industry Macro News]]
 6. 组合风控：[[Industry Neutralization]]、[[Portfolio Risk Control]]
 7. 案例复盘：[[2026-05-17 Nasdaq Qlib Model]]、[[Sifang 601126 Case Study]]
 
@@ -68,6 +68,7 @@
 [[TopK Strategy]]
 [[Backtest And Costs]]
 [[Data Source Upgrade Plan]]
+[[Fixed Window And Real EDGAR Runbook]]
 [[Norgate Data Integration]]
 [[SEC EDGAR Fundamentals Integration]]
 [[SEC EDGAR Technical Data Flow]]

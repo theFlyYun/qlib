@@ -20,6 +20,19 @@ analysis/nasdaq_top500_score/configs/nasdaq_alpha158_lgbm_1d.yaml
   --config analysis/nasdaq_top500_score/configs/nasdaq_alpha158_lgbm_1d.yaml
 ```
 
+固定 15 年窗口 baseline 配置：
+
+```text
+analysis/nasdaq_top500_score/configs/nasdaq_alpha158_lgbm_15y_fixed.yaml
+```
+
+这个配置把行情窗口固定为 `2011-05-17` 到 `2026-05-17`，训练/验证/测试也使用固定日期切分，不会因为以后运行日期变化而漂移：
+
+```bash
+.venv/bin/python -u analysis/nasdaq_top500_score/run_qlib_alpha158_lightgbm.py \
+  --config analysis/nasdaq_top500_score/configs/nasdaq_alpha158_lgbm_15y_fixed.yaml
+```
+
 Norgate S&P 500 历史成分实验配置：
 
 ```text
@@ -52,6 +65,21 @@ export SEC_EDGAR_USER_AGENT="your-name your-email@example.com"
 
 这个实验会把 SEC EDGAR 的 10-K / 10-Q 结构化 XBRL 字段按披露日转成日频 PIT 财报和估值特征，再与 Alpha158 合并训练。
 
+SEC EDGAR 真实数据 smoke test 配置：
+
+```text
+analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_lgbm_15y_smoke.yaml
+```
+
+它同样使用 `2011-05-17` 到 `2026-05-17` 的固定窗口，但股票池先缩小到当前 Nasdaq 市值前 5，只用于验证真实 EDGAR 拉取、CIK 映射和财报特征生成：
+
+```bash
+export SEC_EDGAR_USER_AGENT="Your Name your-email@example.com"
+
+.venv/bin/python -u analysis/nasdaq_top500_score/run_qlib_alpha158_lightgbm.py \
+  --config analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_lgbm_15y_smoke.yaml
+```
+
 行业相对特征实验配置：
 
 ```text
@@ -69,7 +97,7 @@ export SEC_EDGAR_USER_AGENT="your-name your-email@example.com"
 
 这个实验会先生成 Alpha158 和 EDGAR 财报估值特征，再用 `universe.csv` 里的 `sector` / `industry` 生成行业内 rank / percentile 特征。第一版行业分类来自当前 Nasdaq public snapshot，不是历史 PIT 行业分类。
 
-以后要改股票池规模、数据回看天数、标签表达式、切分比例、模型参数和 TopN 报告数量，优先改 YAML，不直接改脚本。
+以后要改股票池规模、数据窗口、标签表达式、切分日期、模型参数和 TopN 报告数量，优先改 YAML，不直接改脚本。
 
 ## 输出目录
 

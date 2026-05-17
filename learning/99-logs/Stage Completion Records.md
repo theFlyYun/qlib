@@ -539,3 +539,88 @@ learning/06-portfolio-risk/Industry Neutralization.md
 learning/99-logs/Qlib Learning Log.md
 learning/99-logs/Stage Completion Records.md
 ```
+
+## 2026-05-17 阶段 E.4：固定 15 年窗口与真实 EDGAR 准备
+
+目标：
+
+把长期实验的数据窗口固定为 `2011-05-17` 到 `2026-05-17`，并给真实 SEC EDGAR 拉取建立可执行指引。
+
+为什么要做：
+
+如果仍使用 `lookback_days`，每次运行都会以运行当天为基准向前滚动，训练集、验证集、测试集都会漂移。量化实验要比较不同标签、特征和模型，必须先固定时间窗口。
+
+输入数据：
+
+```text
+Nasdaq public 股票池和历史日线
+固定数据窗口：2011-05-17 到 2026-05-17
+SEC company_tickers_exchange.json
+SEC submissions
+SEC companyfacts
+```
+
+核心概念：
+
+```text
+固定训练窗口
+固定日期切分
+warmup_days
+EDGAR User-Agent
+EDGAR smoke test
+```
+
+实验动作：
+
+```text
+Nasdaq public 数据源支持 data.start_date / data.end_date
+训练脚本支持 split.method: date
+新增 15 年固定窗口 Alpha158 baseline 配置
+新增 15 年固定窗口 EDGAR smoke test 配置
+新增固定窗口和真实 EDGAR 运行指引
+新增测试验证固定日期下载窗口、固定切分和配置解析
+```
+
+评价指标：
+
+```text
+py_compile 通过
+固定窗口单元测试通过
+全部分析相关测试通过
+全部 YAML 配置可解析
+Markdown 链接和 wikilinks 无断链
+```
+
+结果解读：
+
+本阶段完成的是“可复现时间边界”。以后固定窗口配置不会因为运行日期变化而改变研究样本。
+
+注意：当前 Nasdaq public 仍是当前静态股票池，不是历史动态成分，也不含退市股票。固定窗口解决的是时间漂移，不解决幸存者偏差。
+
+遗留问题：
+
+```text
+尚未真实下载 2011-05-17 到 2026-05-17 的 Nasdaq public 全量日线
+尚未设置 SEC_EDGAR_USER_AGENT
+尚未运行 EDGAR 5 只股票 smoke test
+尚未把 EDGAR smoke test 扩展到 50 / 100 / 500 只股票
+尚未用 Norgate 或 CRSP 解决历史成分和退市股票
+```
+
+下一阶段准备：
+
+先运行 `nasdaq_alpha158_lgbm_15y_fixed.yaml` 建立固定窗口 baseline。然后设置 `SEC_EDGAR_USER_AGENT`，运行 `nasdaq_alpha158_edgar_lgbm_15y_smoke.yaml`，检查 CIK 映射、财报特征和 failure 文件。
+
+产出文件：
+
+```text
+analysis/nasdaq_top500_score/configs/nasdaq_alpha158_lgbm_15y_fixed.yaml
+analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_lgbm_15y_smoke.yaml
+analysis/nasdaq_top500_score/data_sources/nasdaq_public.py
+analysis/nasdaq_top500_score/run_qlib_alpha158_lightgbm.py
+analysis/nasdaq_top500_score/README.md
+tests/analysis/test_fixed_window_config.py
+learning/05-data-expansion/Fixed Window And Real EDGAR Runbook.md
+learning/99-logs/Qlib Learning Log.md
+learning/99-logs/Stage Completion Records.md
+```

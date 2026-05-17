@@ -49,6 +49,7 @@
 ### 05 Data Expansion
 
 - [Data Source Upgrade Plan](<05-data-expansion/Data Source Upgrade Plan.md>)
+- [Fixed Window And Real EDGAR Runbook](<05-data-expansion/Fixed Window And Real EDGAR Runbook.md>)
 - [Norgate Data Integration](<05-data-expansion/Norgate Data Integration.md>)
 - [SEC EDGAR Fundamentals Integration](<05-data-expansion/SEC EDGAR Fundamentals Integration.md>)
 - [SEC EDGAR Technical Data Flow](<05-data-expansion/SEC EDGAR Technical Data Flow.md>)

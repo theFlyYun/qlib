@@ -79,6 +79,15 @@ def validate_config(config: dict[str, Any]) -> None:
         raise ValueError("supported data.source values: nasdaq_public, norgate")
     if source == "nasdaq_public" and config["universe"]["exchange"] != "NASDAQ":
         raise ValueError("nasdaq_public currently supports universe.exchange: NASDAQ")
+    if source == "nasdaq_public":
+        fixed_window = bool(config["data"].get("start_date") or config["data"].get("end_date"))
+        if fixed_window:
+            missing = [key for key in ["start_date", "end_date"] if key not in config["data"]]
+            if missing:
+                raise ValueError(f"nasdaq_public fixed window missing data key(s): {', '.join(missing)}")
+            validate_date_order(config["data"]["start_date"], config["data"]["end_date"], "data")
+        elif "lookback_days" not in config["data"]:
+            raise ValueError("nasdaq_public requires either data.lookback_days or data.start_date/data.end_date")
     if source == "norgate":
         required_universe_keys = ["index_name", "index_symbol", "candidate_databases", "min_history_rows"]
         required_data_keys = ["start_date", "price_adjustment", "padding", "vwap_method"]
@@ -94,8 +103,8 @@ def validate_config(config: dict[str, Any]) -> None:
         raise ValueError("currently supports features.handler: Alpha158")
     if config["model"]["class"] != "LGBModel":
         raise ValueError("currently supports model.class: LGBModel")
-    if config["split"]["method"] != "ratio":
-        raise ValueError("currently supports split.method: ratio")
+    if config["split"]["method"] not in {"ratio", "date"}:
+        raise ValueError("currently supports split.method: ratio, date")
     fundamentals = config.get("fundamentals", {})
     if fundamentals:
         if fundamentals.get("source") != "sec_edgar":
@@ -111,11 +120,40 @@ def validate_config(config: dict[str, Any]) -> None:
         if industry.get("enabled") and not industry.get("rank_features"):
             raise ValueError("enabled industry features require industry.rank_features")
 
-    train_ratio = float(config["split"]["train_ratio"])
-    valid_ratio = float(config["split"]["valid_ratio"])
-    test_ratio = float(config["split"]["test_ratio"])
-    if not math.isclose(train_ratio + valid_ratio + test_ratio, 1.0, rel_tol=0, abs_tol=1e-6):
-        raise ValueError("split train_ratio + valid_ratio + test_ratio must equal 1.0")
+    if config["split"]["method"] == "ratio":
+        train_ratio = float(config["split"]["train_ratio"])
+        valid_ratio = float(config["split"]["valid_ratio"])
+        test_ratio = float(config["split"]["test_ratio"])
+        if not math.isclose(train_ratio + valid_ratio + test_ratio, 1.0, rel_tol=0, abs_tol=1e-6):
+            raise ValueError("split train_ratio + valid_ratio + test_ratio must equal 1.0")
+    else:
+        validate_date_split(config["split"])
+
+
+def date_value(value: Any) -> pd.Timestamp:
+    if isinstance(value, str) and value == "latest":
+        return pd.Timestamp.today().normalize()
+    return pd.Timestamp(value).normalize()
+
+
+def validate_date_order(start: Any, end: Any, label: str) -> None:
+    if date_value(start) > date_value(end):
+        raise ValueError(f"{label} start date must be before or equal to end date")
+
+
+def validate_date_split(split: dict[str, Any]) -> None:
+    missing_segments = [segment for segment in ["train", "valid", "test"] if segment not in split]
+    if missing_segments:
+        raise ValueError(f"date split missing segment(s): {', '.join(missing_segments)}")
+    for segment in ["train", "valid", "test"]:
+        missing = [key for key in ["start", "end"] if key not in split[segment]]
+        if missing:
+            raise ValueError(f"date split {segment} missing key(s): {', '.join(missing)}")
+        validate_date_order(split[segment]["start"], split[segment]["end"], f"split.{segment}")
+    if date_value(split["train"]["end"]) >= date_value(split["valid"]["start"]):
+        raise ValueError("date split train.end must be before valid.start")
+    if date_value(split["valid"]["end"]) >= date_value(split["test"]["start"]):
+        raise ValueError("date split valid.end must be before test.start")
 
 
 def build_paths(config: dict[str, Any]) -> dict[str, Path]:
@@ -184,6 +222,9 @@ def choose_segments(config: dict[str, Any], paths: dict[str, Path]) -> dict[str,
     if len(dates) < max(300, warmup_days + 30):
         raise RuntimeError(f"not enough trading dates for model training: {len(dates)}")
 
+    if config["split"]["method"] == "date":
+        return choose_date_segments(config, dates, warmup_days)
+
     train_ratio = float(config["split"]["train_ratio"])
     valid_ratio = float(config["split"]["valid_ratio"])
     train_end_idx = int(len(dates) * train_ratio)
@@ -202,6 +243,37 @@ def choose_segments(config: dict[str, Any], paths: dict[str, Path]) -> dict[str,
         "valid": (valid_start, valid_end),
         "test": (test_start, dates.iloc[-1].strftime("%Y-%m-%d")),
     }
+
+
+def choose_date_segments(
+    config: dict[str, Any],
+    dates: pd.Series,
+    warmup_days: int,
+) -> dict[str, tuple[str, str]]:
+    split = config["split"]
+    train = calendar_segment(dates, split["train"]["start"], split["train"]["end"], "train")
+    valid = calendar_segment(dates, split["valid"]["start"], split["valid"]["end"], "valid")
+    test = calendar_segment(dates, split["test"]["start"], split["test"]["end"], "test")
+    warmup_start = dates.iloc[warmup_days]
+    train_start = max(pd.Timestamp(train[0]), warmup_start).strftime("%Y-%m-%d")
+    if pd.Timestamp(train_start) > pd.Timestamp(train[1]):
+        raise RuntimeError("warmup_days leave no dates in the configured train segment")
+    return {
+        "fit": (dates.iloc[0].strftime("%Y-%m-%d"), train[1]),
+        "all": (dates.iloc[0].strftime("%Y-%m-%d"), dates.iloc[-1].strftime("%Y-%m-%d")),
+        "train": (train_start, train[1]),
+        "valid": valid,
+        "test": test,
+    }
+
+
+def calendar_segment(dates: pd.Series, start: Any, end: Any, label: str) -> tuple[str, str]:
+    start_ts = date_value(start)
+    end_ts = date_value(end)
+    selected = dates[(dates >= start_ts) & (dates <= end_ts)]
+    if selected.empty:
+        raise RuntimeError(f"no trading dates available for configured {label} segment")
+    return selected.iloc[0].strftime("%Y-%m-%d"), selected.iloc[-1].strftime("%Y-%m-%d")
 
 
 def train_and_predict(

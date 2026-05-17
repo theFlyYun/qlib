@@ -6,7 +6,7 @@ import concurrent.futures
 import csv
 import io
 import time
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -110,10 +110,11 @@ class NasdaqPublicDataSource:
         return frame
 
     def download_symbol_history(self, symbol: str) -> tuple[str, int, str | None]:
+        from_date, to_date = nasdaq_history_window(self.config["data"])
         params = {
             "assetclass": "stocks",
-            "fromdate": (datetime.now().date() - timedelta(days=int(self.config["data"]["lookback_days"]))).isoformat(),
-            "todate": datetime.now().date().isoformat(),
+            "fromdate": from_date,
+            "todate": to_date,
             "limit": "9999",
         }
         data = fetch_json(
@@ -173,3 +174,24 @@ class NasdaqPublicDataSource:
                     print(f"Downloaded {index}/{len(symbols)}; failures/skips: {len(failures)}")
 
         return write_failures(self.paths["failures_csv"], failures)
+
+
+def nasdaq_history_window(data_config: dict[str, Any]) -> tuple[str, str]:
+    if data_config.get("start_date") and data_config.get("end_date"):
+        return normalize_date_text(data_config["start_date"]), normalize_date_text(data_config["end_date"])
+    return (
+        (datetime.now().date() - timedelta(days=int(data_config["lookback_days"]))).isoformat(),
+        datetime.now().date().isoformat(),
+    )
+
+
+def normalize_date_text(value: Any) -> str:
+    if isinstance(value, str):
+        if value == "latest":
+            return date.today().isoformat()
+        return value
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    return str(value)
