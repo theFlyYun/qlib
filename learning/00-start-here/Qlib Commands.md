@@ -116,6 +116,15 @@ export SEC_EDGAR_USER_AGENT="Your Name your-email@example.com"
   --config analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_lgbm_10y_clean_bucket_top10_5d.yaml
 ```
 
+运行 PIT 过滤版 5 日 Top10 回测：
+
+```bash
+export SEC_EDGAR_USER_AGENT="Your Name your-email@example.com"
+
+.venv/bin/python -u analysis/nasdaq_top500_score/run_qlib_alpha158_lightgbm.py \
+  --config analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_lgbm_10y_clean_bucket_top10_5d_pit_safe.yaml
+```
+
 运行真实 EDGAR smoke test 前先设置 User-Agent：
 
 ```bash
@@ -180,6 +189,13 @@ run = "analysis/nasdaq_top500_score/runs/nasdaq_alpha158_edgar_lgbm_10y_clean_bu
 print(pd.read_csv(f"{run}/backtest_nav.csv").tail())
 print(pd.read_csv(f"{run}/backtest_positions.csv").head())
 PY
+```
+
+复盘 PIT 过滤版回测：
+
+```bash
+sed -n '1,140p' analysis/nasdaq_top500_score/runs/nasdaq_alpha158_edgar_lgbm_10y_clean_bucket_top10_5d_pit_safe/backtest_summary.yaml
+sed -n '1,280p' analysis/nasdaq_top500_score/runs/nasdaq_alpha158_edgar_lgbm_10y_clean_bucket_top10_5d_pit_safe/report.md
 ```
 
 ## 测试与验证

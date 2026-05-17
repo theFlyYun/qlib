@@ -452,6 +452,122 @@ learning/99-logs/Qlib Learning Log.md
 learning/99-logs/Stage Completion Records.md
 ```
 
+## 2026-05-17 第 5.1 条：PIT 过滤版 TopK 回测
+
+目标：
+
+减少回测中的未来信息污染，先修正历史长度分桶和流动性过滤这两个明显问题。
+
+为什么要做：
+
+旧版成本后回测虽然训练期没有使用 2024 年以后的标签，但回测选择阶段仍然使用了未来可见信息：
+
+```text
+历史长度分桶使用完整 2016-2026 数据
+流动性过滤使用 2026 年末最近 20/60 日数据
+```
+
+这会让 2024 年的选股提前知道哪些股票后来仍然存在、后来仍然有流动性。
+
+输入数据：
+
+```text
+Nasdaq public 当前市值前 500
+固定行情窗口：2016-05-17 到 2026-05-17
+训练期：2016-08-11 到 2021-12-31
+验证期：2022-01-03 到 2023-12-29
+测试期：2024-01-02 到 2026-05-15
+Alpha158 价格成交量特征
+SEC EDGAR PIT 财报估值特征
+未来 5 日收益标签
+```
+
+核心概念：
+
+```text
+PIT：point in time，只使用当时可见数据
+history_rows_asof：截至信号日已有多少交易日历史
+liquidity_asof：截至信号日前 20/60 日流动性
+残余股票池偏差：当前 Nasdaq public 仍不是历史 PIT 股票池
+```
+
+实验动作：
+
+```text
+新增 backtest.point_in_time_filters
+新增 nasdaq_alpha158_edgar_lgbm_10y_clean_bucket_top10_5d_pit_safe.yaml
+训练前不再用 2026 年末流动性删除股票
+每个回测信号日重新计算历史长度桶
+每个回测信号日重新计算 20/60 日流动性
+记录 PIT 过滤前后候选数
+新增 PIT Safe Backtest 学习文档
+```
+
+评价指标：
+
+```text
+累计收益
+年化收益
+最大回撤
+平均换手
+PIT 过滤前候选数
+PIT 过滤后候选数
+PIT 历史长度通过数
+PIT 流动性通过数
+```
+
+结果解读：
+
+旧版回测：
+
+```text
+累计收益：2225.10%
+年化收益：283.38%
+最大回撤：-18.11%
+平均换手：110.93%
+```
+
+PIT 过滤版：
+
+```text
+累计收益：1097.92%
+年化收益：188.81%
+最大回撤：-21.63%
+平均换手：97.33%
+平均 PIT 过滤前候选数：476.14
+平均 PIT 过滤后候选数：454.47
+```
+
+结果下降明显，说明旧版分桶和流动性确实抬高了回测结果。但收益仍然偏高，说明最大污染源可能仍是股票池：当前 Nasdaq public 使用运行日市值前 500，不是历史时点可见股票池。
+
+遗留问题：
+
+```text
+股票池仍不是历史 PIT top 500
+没有退市股票
+没有历史市值
+行业分类和证券主数据仍是当前 snapshot
+没有专业复权行情
+没有基准超额收益和容量约束
+```
+
+下一阶段准备：
+
+继续推进数据源升级，优先解决历史股票池、退市股票、历史市值和复权行情。当前免费 Nasdaq public 数据源不足以支持完全严谨的 PIT 回测。
+
+产出文件：
+
+```text
+analysis/nasdaq_top500_score/backtest.py
+analysis/nasdaq_top500_score/run_qlib_alpha158_lightgbm.py
+analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_lgbm_10y_clean_bucket_top10_5d_pit_safe.yaml
+tests/analysis/test_topk_backtest.py
+learning/04-strategy-backtest/PIT Safe Backtest.md
+learning/00-start-here/Qlib Commands.md
+learning/99-logs/Qlib Learning Log.md
+learning/99-logs/Stage Completion Records.md
+```
+
 ## 2026-05-17 阶段 E.3：行业特征与行业内相对因子
 
 目标：

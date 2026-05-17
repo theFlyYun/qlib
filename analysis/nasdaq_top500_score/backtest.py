@@ -12,8 +12,12 @@ import yaml
 
 try:
     from .selection import select_bucketed_top
+    from .selection.history_buckets import assign_history_bucket
+    from .selection.liquidity import liquidity_exclusion_reason
 except ImportError:  # pragma: no cover - supports running the pipeline as a script.
     from selection import select_bucketed_top
+    from selection.history_buckets import assign_history_bucket
+    from selection.liquidity import liquidity_exclusion_reason
 
 
 @dataclass
@@ -39,7 +43,9 @@ def run_topk_backtest(
         write_backtest_outputs(result, paths)
         return result
 
-    close = load_price_matrix(paths["source_dir"], str(backtest_config.get("price", "close")))
+    price_column = str(backtest_config.get("price", "close"))
+    market_data = load_market_data(paths["source_dir"], price_column)
+    close = price_matrix_from_market_data(market_data)
     history = read_history_buckets(paths["history_buckets_csv"])
     enriched = enrich_predictions(predictions, universe, history)
     calendar = read_calendar(paths["qlib_dir"])
@@ -73,7 +79,7 @@ def run_topk_backtest(
 
         entry_date = calendar[entry_index]
         exit_date = calendar[exit_index]
-        selected = select_for_signal_date(enriched, signal_ts, config, top_n)
+        selected, filter_stats = select_for_signal_date(enriched, signal_ts, config, top_n, market_data)
         tradable_positions = build_position_returns(selected, close, entry_date, exit_date)
         if len(tradable_positions) < min_positions:
             skipped_periods += 1
@@ -99,6 +105,7 @@ def run_topk_backtest(
                 "cost_return": cost_return,
                 "net_return": net_return,
                 "nav": nav,
+                **filter_stats,
             }
         )
         for row in tradable_positions:
@@ -115,6 +122,10 @@ def run_topk_backtest(
                     "industry": row.get("industry"),
                     "score": row.get("score"),
                     "weight": weight,
+                    "history_rows_asof": row.get("history_rows_asof"),
+                    "latest_close_asof": row.get("latest_close_asof"),
+                    "avg_dollar_volume_20d_asof": row.get("avg_dollar_volume_20d_asof"),
+                    "median_dollar_volume_60d_asof": row.get("median_dollar_volume_60d_asof"),
                     "entry_price": row["entry_price"],
                     "exit_price": row["exit_price"],
                     "gross_return": row["gross_return"],
@@ -146,19 +157,134 @@ def select_for_signal_date(
     signal_date: pd.Timestamp,
     config: dict[str, Any],
     top_n: int,
-) -> pd.DataFrame:
+    market_data: dict[str, pd.DataFrame] | None = None,
+) -> tuple[pd.DataFrame, dict[str, Any]]:
     day = enriched[enriched["datetime"] == signal_date].copy()
     day = day.sort_values("score", ascending=False).reset_index(drop=True)
+    day, filter_stats = apply_point_in_time_filters(day, signal_date, config, market_data or {})
     day["global_rank"] = range(1, len(day) + 1)
-    day["bucket_rank"] = day.groupby("history_bucket")["score"].rank(method="first", ascending=False).astype(int)
+    if day.empty:
+        if "history_bucket" not in day.columns:
+            day["history_bucket"] = pd.Series(dtype=object)
+        day["bucket_rank"] = pd.Series(dtype=int)
+    else:
+        day["bucket_rank"] = day.groupby("history_bucket")["score"].rank(method="first", ascending=False).astype(int)
 
     ranking_config = config.get("bucket_ranking", {})
     if ranking_config.get("enabled", False):
-        return select_bucketed_top(day, ranking_config, top_n, config.get("industry_constraints", {}))
+        return select_bucketed_top(day, ranking_config, top_n, config.get("industry_constraints", {})), filter_stats
 
     selected = day.head(top_n).copy()
     selected["selected_rank"] = range(1, len(selected) + 1)
-    return selected
+    return selected, filter_stats
+
+
+def apply_point_in_time_filters(
+    day: pd.DataFrame,
+    signal_date: pd.Timestamp,
+    config: dict[str, Any],
+    market_data: dict[str, pd.DataFrame],
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    pit_config = config.get("backtest", {}).get("point_in_time_filters", {})
+    if not pit_config.get("enabled", False):
+        return day, {
+            "candidate_count_before_pit": int(len(day)),
+            "candidate_count_after_pit": int(len(day)),
+            "pit_history_pass_count": int(len(day)),
+            "pit_liquidity_pass_count": int(len(day)),
+        }
+
+    rows = []
+    min_history_rows = int(pit_config.get("min_history_rows", config["universe"].get("min_history_rows", 1)))
+    history_asof = bool(pit_config.get("history_bucket_asof", True))
+    liquidity_asof = bool(pit_config.get("liquidity_asof", True))
+    liquidity_config = pit_config.get("liquidity", config.get("liquidity_filter", {}))
+
+    for row in day.to_dict("records"):
+        symbol = str(row["symbol"]).upper()
+        profile = build_asof_market_profile(symbol, market_data, signal_date)
+        history_rows_asof = int(profile["rows"])
+        if history_asof:
+            row["history_bucket"] = assign_history_bucket(history_rows_asof, config.get("history_buckets", {}))
+        row["history_rows_asof"] = history_rows_asof
+        row["latest_close_asof"] = profile["latest_close"]
+        row["avg_dollar_volume_20d_asof"] = profile["avg_dollar_volume_20d"]
+        row["median_dollar_volume_60d_asof"] = profile["median_dollar_volume_60d"]
+        row["zero_volume_ratio_60d_asof"] = profile["zero_volume_ratio_60d"]
+        row["recent_trading_days_60d_asof"] = profile["recent_trading_days_60d"]
+
+        history_reason = None if history_rows_asof >= min_history_rows else f"history_rows_asof < {min_history_rows}"
+        liquidity_reason = liquidity_exclusion_reason(profile, liquidity_config) if liquidity_asof else None
+        row["pit_history_pass"] = history_reason is None
+        row["pit_liquidity_pass"] = liquidity_reason is None
+        row["pit_exclusion_reason"] = history_reason or liquidity_reason
+        rows.append(row)
+
+    filtered = pd.DataFrame(rows)
+    if filtered.empty:
+        return filtered, {
+            "candidate_count_before_pit": int(len(day)),
+            "candidate_count_after_pit": 0,
+            "pit_history_pass_count": 0,
+            "pit_liquidity_pass_count": 0,
+        }
+
+    history_pass = filtered["pit_history_pass"]
+    liquidity_pass = filtered["pit_liquidity_pass"]
+    filtered = filtered[history_pass & liquidity_pass].copy()
+    return filtered, {
+        "candidate_count_before_pit": int(len(day)),
+        "candidate_count_after_pit": int(len(filtered)),
+        "pit_history_pass_count": int(history_pass.sum()),
+        "pit_liquidity_pass_count": int(liquidity_pass.sum()),
+    }
+
+
+def build_asof_market_profile(
+    symbol: str,
+    market_data: dict[str, pd.DataFrame],
+    signal_date: pd.Timestamp,
+) -> dict[str, Any]:
+    frame = market_data.get(symbol)
+    if frame is None or frame.empty:
+        return empty_asof_market_profile(symbol, "missing market data")
+
+    working = frame[frame.index <= signal_date].copy()
+    if working.empty:
+        return empty_asof_market_profile(symbol, "no data as of signal date")
+
+    working = working.dropna(subset=["close", "volume", "execution_price"])
+    if working.empty:
+        return empty_asof_market_profile(symbol, "no usable rows as of signal date")
+
+    working["dollar_volume"] = working["execution_price"] * working["volume"]
+    recent_20 = working.tail(20)
+    recent_60 = working.tail(60)
+    recent_60_count = int(len(recent_60))
+    zero_volume_days = int((recent_60["volume"] <= 0).sum())
+    return {
+        "symbol": symbol,
+        "rows": int(len(working)),
+        "latest_close": float(working["close"].iloc[-1]),
+        "avg_dollar_volume_20d": float(recent_20["dollar_volume"].mean()),
+        "median_dollar_volume_60d": float(recent_60["dollar_volume"].median()),
+        "zero_volume_ratio_60d": zero_volume_days / recent_60_count if recent_60_count else 1.0,
+        "recent_trading_days_60d": recent_60_count,
+        "exclusion_reason": None,
+    }
+
+
+def empty_asof_market_profile(symbol: str, reason: str) -> dict[str, Any]:
+    return {
+        "symbol": symbol,
+        "rows": 0,
+        "latest_close": pd.NA,
+        "avg_dollar_volume_20d": pd.NA,
+        "median_dollar_volume_60d": pd.NA,
+        "zero_volume_ratio_60d": pd.NA,
+        "recent_trading_days_60d": 0,
+        "exclusion_reason": reason,
+    }
 
 
 def build_position_returns(
@@ -190,17 +316,30 @@ def build_position_returns(
 
 
 def load_price_matrix(source_dir: Path, price_column: str) -> pd.DataFrame:
+    return price_matrix_from_market_data(load_market_data(source_dir, price_column))
+
+
+def load_market_data(source_dir: Path, price_column: str) -> dict[str, pd.DataFrame]:
     series = {}
     for csv_path in sorted(source_dir.glob("*.csv")):
         symbol = csv_path.stem.upper()
-        frame = pd.read_csv(csv_path, usecols=["date", price_column])
+        usecols = ["date", "close", "volume"]
+        if price_column not in usecols:
+            usecols.append(price_column)
+        frame = pd.read_csv(csv_path, usecols=usecols)
         frame["date"] = pd.to_datetime(frame["date"]).dt.normalize()
-        prices = pd.to_numeric(frame[price_column], errors="coerce")
-        prices.index = frame["date"]
-        series[symbol] = prices
-    if not series:
+        frame["close"] = pd.to_numeric(frame["close"], errors="coerce")
+        frame["volume"] = pd.to_numeric(frame["volume"], errors="coerce")
+        frame["execution_price"] = pd.to_numeric(frame[price_column], errors="coerce")
+        frame = frame.set_index("date").sort_index()
+        series[symbol] = frame[["close", "volume", "execution_price"]]
+    return series
+
+
+def price_matrix_from_market_data(market_data: dict[str, pd.DataFrame]) -> pd.DataFrame:
+    if not market_data:
         return pd.DataFrame()
-    return pd.DataFrame(series).sort_index()
+    return pd.DataFrame({symbol: frame["execution_price"] for symbol, frame in market_data.items()}).sort_index()
 
 
 def read_history_buckets(path: Path) -> pd.DataFrame:
@@ -245,6 +384,17 @@ def summarize_backtest(
     )
     drawdown = nav["nav"] / nav["nav"].cummax() - 1.0
     top_symbols = positions["symbol"].value_counts().head(10).to_dict() if not positions.empty else {}
+    pit_columns = [
+        "candidate_count_before_pit",
+        "candidate_count_after_pit",
+        "pit_history_pass_count",
+        "pit_liquidity_pass_count",
+    ]
+    pit_stats = {
+        f"avg_{column}": float(nav[column].mean())
+        for column in pit_columns
+        if column in nav.columns
+    }
     return {
         "enabled": True,
         "period_count": int(len(nav)),
@@ -263,6 +413,8 @@ def summarize_backtest(
         "total_cost_return": float(nav["cost_return"].sum()),
         "avg_position_count": float(nav["position_count"].mean()),
         "top_symbols_by_holding_count": top_symbols,
+        "point_in_time_filters": config.get("point_in_time_filters", {}),
+        **pit_stats,
         "config": config,
     }
 

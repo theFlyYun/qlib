@@ -119,6 +119,30 @@ export SEC_EDGAR_USER_AGENT="Your Name your-email@example.com"
   --config analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_lgbm_10y_clean_bucket_top10_5d.yaml
 ```
 
+PIT 过滤版未来 5 日收益回测配置：
+
+```text
+analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_lgbm_10y_clean_bucket_top10_5d_pit_safe.yaml
+```
+
+这版不在训练前使用 2026 年末流动性过滤，而是在每个回测信号日按当时可见行情重新计算：
+
+```text
+截至信号日的历史长度分桶
+截至信号日的 20/60 日流动性
+```
+
+运行入口：
+
+```bash
+export SEC_EDGAR_USER_AGENT="Your Name your-email@example.com"
+
+.venv/bin/python -u analysis/nasdaq_top500_score/run_qlib_alpha158_lightgbm.py \
+  --config analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_lgbm_10y_clean_bucket_top10_5d_pit_safe.yaml
+```
+
+注意：这仍不是完全 PIT 回测，因为 `nasdaq_public` 股票池仍按运行日市值前 500 构建，不是历史时点的前 500。
+
 回测口径：
 
 ```text

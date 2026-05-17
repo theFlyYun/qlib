@@ -209,6 +209,9 @@ def validate_backtest(config: dict[str, Any]) -> None:
         raise ValueError("backtest.price must be close or vwap")
     if config.get("bucket_ranking", {}).get("enabled", False) and int(backtest["top_n"]) != int(config["report"]["top_n"]):
         raise ValueError("bucketed backtest requires backtest.top_n to equal report.top_n")
+    pit_filters = backtest.get("point_in_time_filters", {})
+    if pit_filters.get("enabled", False) and int(pit_filters.get("min_history_rows", config["universe"].get("min_history_rows", 1))) <= 0:
+        raise ValueError("backtest.point_in_time_filters.min_history_rows must be positive")
 
 
 def date_value(value: Any) -> pd.Timestamp:
@@ -775,10 +778,16 @@ def write_report(
                     f"- 平均换手：{fmt_pct(backtest_summary.get('avg_turnover'))}",
                     f"- 累计成本扣减：{fmt_pct(backtest_summary.get('total_cost_return'))}",
                     f"- 平均持仓数量：{fmt_number(backtest_summary.get('avg_position_count'), 2)}",
+                    f"- 平均 PIT 过滤前候选数：{fmt_number(backtest_summary.get('avg_candidate_count_before_pit'), 2)}",
+                    f"- 平均 PIT 过滤后候选数：{fmt_number(backtest_summary.get('avg_candidate_count_after_pit'), 2)}",
+                    f"- 平均 PIT 历史长度通过数：{fmt_number(backtest_summary.get('avg_pit_history_pass_count'), 2)}",
+                    f"- 平均 PIT 流动性通过数：{fmt_number(backtest_summary.get('avg_pit_liquidity_pass_count'), 2)}",
                     "- 出现次数最多的持仓：",
                     *format_yaml_block(backtest_summary.get("top_symbols_by_holding_count", {})),
                     "",
-                    "本回测使用测试期每日模型分数，按配置的调仓间隔做非重叠 TopK 组合；信号日后一个交易日入场，持有指定交易日后退出，并扣除单边交易成本。它仍是学习研究材料，不是投资建议。",
+                    "本回测使用测试期每日模型分数，按配置的调仓间隔做非重叠 TopK 组合；信号日后一个交易日入场，持有指定交易日后退出，并扣除单边交易成本。若启用 point_in_time_filters，历史长度分桶和流动性过滤按信号日当时可见行情重新计算。它仍是学习研究材料，不是投资建议。",
+                    "",
+                    "重要限制：当前 `nasdaq_public` 股票池仍按运行日的 Nasdaq 市值前 500 构建，不是历史 PIT 股票池；因此即使启用 point_in_time_filters，仍不能视为完全杜绝未来信息的严谨回测。",
                 ]
                 if meta.get("backtest_enabled", False)
                 else ["- 未启用。"]

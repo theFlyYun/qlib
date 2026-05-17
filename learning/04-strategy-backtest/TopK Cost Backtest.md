@@ -119,4 +119,4 @@ analysis/nasdaq_top500_score/runs/nasdaq_alpha158_edgar_lgbm_10y_clean_bucket_to
 用 PIT 股票池和退市股票减少幸存者偏差
 ```
 
-继续学习 [[Portfolio Risk Control]] 和 [[Industry Neutralization]]。
+当前已先完成一版 [[PIT Safe Backtest]]，把历史长度分桶和流动性过滤改成按信号日计算。继续学习 [[Portfolio Risk Control]] 和 [[Industry Neutralization]]。

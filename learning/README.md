@@ -47,6 +47,7 @@
 - [TopK Strategy](<04-strategy-backtest/TopK Strategy.md>)
 - [Backtest And Costs](<04-strategy-backtest/Backtest And Costs.md>)
 - [TopK Cost Backtest](<04-strategy-backtest/TopK Cost Backtest.md>)
+- [PIT Safe Backtest](<04-strategy-backtest/PIT Safe Backtest.md>)
 
 ### 05 Data Expansion
 
