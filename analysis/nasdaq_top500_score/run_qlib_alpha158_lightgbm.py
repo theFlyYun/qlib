@@ -7,37 +7,24 @@ research artifact for learning Qlib, not investment advice.
 from __future__ import annotations
 
 import argparse
-import concurrent.futures
-import csv
-import io
 import math
 import shutil
 import sys
-import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
-import requests
 import yaml
+
+try:
+    from data_sources import DataSourceUnavailable, create_data_source
+except ImportError:  # pragma: no cover - supports importing this script as a module in tests.
+    from analysis.nasdaq_top500_score.data_sources import DataSourceUnavailable, create_data_source
 
 WORKSPACE = Path(__file__).resolve().parents[2]
 ROOT = Path(__file__).resolve().parent
 DEFAULT_CONFIG = ROOT / "configs" / "nasdaq_alpha158_lgbm_1d.yaml"
-
-NASDAQ_LISTED_URL = "https://www.nasdaqtrader.com/dynamic/SymDir/nasdaqlisted.txt"
-NASDAQ_SCREENER_URL = "https://api.nasdaq.com/api/screener/stocks"
-NASDAQ_HISTORICAL_URL = "https://api.nasdaq.com/api/quote/{symbol}/historical"
-
-HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
-    ),
-    "Accept": "application/json, text/plain, */*",
-    "Origin": "https://www.nasdaq.com",
-}
 
 
 def parse_args() -> argparse.Namespace:
@@ -83,20 +70,28 @@ def load_config(config_path: Path) -> dict[str, Any]:
 
 
 def validate_config(config: dict[str, Any]) -> None:
-    if config["data"]["source"] != "nasdaq_public":
-        raise ValueError("Stage B currently supports data.source: nasdaq_public")
-    if config["universe"]["exchange"] != "NASDAQ":
-        raise ValueError("Stage B currently supports universe.exchange: NASDAQ")
+    source = config["data"]["source"]
+    if source not in {"nasdaq_public", "norgate"}:
+        raise ValueError("supported data.source values: nasdaq_public, norgate")
+    if source == "nasdaq_public" and config["universe"]["exchange"] != "NASDAQ":
+        raise ValueError("nasdaq_public currently supports universe.exchange: NASDAQ")
+    if source == "norgate":
+        required_universe_keys = ["index_name", "index_symbol", "candidate_databases", "min_history_rows"]
+        required_data_keys = ["start_date", "price_adjustment", "padding", "vwap_method"]
+        missing = [key for key in required_universe_keys if key not in config["universe"]]
+        missing.extend(key for key in required_data_keys if key not in config["data"])
+        if missing:
+            raise ValueError(f"norgate config missing key(s): {', '.join(missing)}")
     if config["data"]["freq"] != "day":
-        raise ValueError("Stage B currently supports data.freq: day")
+        raise ValueError("currently supports data.freq: day")
     if config["data"]["vwap_method"] != "ohlc_mean":
-        raise ValueError("Stage B currently supports data.vwap_method: ohlc_mean")
+        raise ValueError("currently supports data.vwap_method: ohlc_mean")
     if config["features"]["handler"] != "Alpha158":
-        raise ValueError("Stage B currently supports features.handler: Alpha158")
+        raise ValueError("currently supports features.handler: Alpha158")
     if config["model"]["class"] != "LGBModel":
-        raise ValueError("Stage B currently supports model.class: LGBModel")
+        raise ValueError("currently supports model.class: LGBModel")
     if config["split"]["method"] != "ratio":
-        raise ValueError("Stage B currently supports split.method: ratio")
+        raise ValueError("currently supports split.method: ratio")
 
     train_ratio = float(config["split"]["train_ratio"])
     valid_ratio = float(config["split"]["valid_ratio"])
@@ -113,6 +108,7 @@ def build_paths(config: dict[str, Any]) -> dict[str, Path]:
         "qlib_dir": output_dir / "qlib_data",
         "universe_csv": output_dir / "universe.csv",
         "failures_csv": output_dir / "download_failures.csv",
+        "membership_csv": output_dir / "membership.csv",
         "predictions_csv": output_dir / "predictions.csv",
         "report_md": output_dir / "report.md",
         "resolved_config": output_dir / "resolved_config.yaml",
@@ -131,155 +127,6 @@ def write_resolved_config(config: dict[str, Any], paths: dict[str, Path]) -> Non
         yaml.safe_dump(resolved, allow_unicode=True, sort_keys=False),
         encoding="utf-8",
     )
-
-
-def parse_float(value: Any) -> float:
-    if value is None:
-        return math.nan
-    text = str(value).replace("$", "").replace(",", "").strip()
-    if not text or text in {"--", "N/A"}:
-        return math.nan
-    try:
-        return float(text)
-    except ValueError:
-        return math.nan
-
-
-def fetch_json(url: str, *, params: dict[str, str] | None = None, referer: str = "", retries: int = 3) -> dict:
-    last_error: Exception | None = None
-    headers = {**HEADERS}
-    if referer:
-        headers["Referer"] = referer
-    for attempt in range(retries):
-        try:
-            response = requests.get(url, params=params, headers=headers, timeout=30)
-            response.raise_for_status()
-            return response.json()
-        except Exception as exc:  # noqa: BLE001 - public endpoints are occasionally flaky.
-            last_error = exc
-            time.sleep(1.5 * (attempt + 1))
-    raise RuntimeError(f"failed to fetch {url}: {last_error}")
-
-
-def fetch_text(url: str, *, retries: int = 3) -> str:
-    last_error: Exception | None = None
-    for attempt in range(retries):
-        try:
-            response = requests.get(url, headers=HEADERS, timeout=30)
-            response.raise_for_status()
-            return response.text
-        except Exception as exc:  # noqa: BLE001 - public endpoints are occasionally flaky.
-            last_error = exc
-            time.sleep(1.5 * (attempt + 1))
-    raise RuntimeError(f"failed to fetch {url}: {last_error}")
-
-
-def load_top_universe(config: dict[str, Any], paths: dict[str, Path]) -> pd.DataFrame:
-    listed_text = fetch_text(NASDAQ_LISTED_URL)
-    listed_symbols = set()
-    reader = csv.DictReader(io.StringIO(listed_text.replace("\r\n", "\n")), delimiter="|")
-    for row in reader:
-        symbol = row.get("Symbol", "")
-        if not symbol or symbol == "File Creation Time":
-            continue
-        if config["universe"]["exclude_test_issue"] and row.get("Test Issue") != "N":
-            continue
-        if config["universe"]["exclude_etf"] and row.get("ETF") != "N":
-            continue
-        listed_symbols.add(symbol)
-
-    screener = fetch_json(
-        NASDAQ_SCREENER_URL,
-        params={
-            "tableonly": "true",
-            "limit": "25",
-            "offset": "0",
-            "download": "true",
-            "exchange": config["universe"]["exchange"],
-        },
-        referer="https://www.nasdaq.com/market-activity/stocks/screener",
-    )
-    frame = pd.DataFrame(screener["data"]["rows"])
-    frame = frame[frame["symbol"].isin(listed_symbols)].copy()
-    frame["market_cap"] = frame["marketCap"].map(parse_float)
-    frame["last_sale"] = frame["lastsale"].map(parse_float)
-    frame = frame[frame["market_cap"].notna() & (frame["market_cap"] > 0)]
-    frame = frame.sort_values("market_cap", ascending=False).head(int(config["universe"]["top_n_by_market_cap"]))
-    frame.to_csv(paths["universe_csv"], index=False)
-    return frame
-
-
-def download_symbol_history(symbol: str, config: dict[str, Any], source_dir: Path) -> tuple[str, int, str | None]:
-    params = {
-        "assetclass": "stocks",
-        "fromdate": (datetime.now().date() - timedelta(days=int(config["data"]["lookback_days"]))).isoformat(),
-        "todate": datetime.now().date().isoformat(),
-        "limit": "9999",
-    }
-    data = fetch_json(
-        NASDAQ_HISTORICAL_URL.format(symbol=symbol),
-        params=params,
-        referer=f"https://www.nasdaq.com/market-activity/stocks/{symbol.lower()}/historical",
-    )
-    rows = data.get("data", {}).get("tradesTable", {}).get("rows")
-    if not rows:
-        return symbol, 0, "no rows"
-
-    parsed = []
-    for row in rows:
-        date = datetime.strptime(row["date"], "%m/%d/%Y").date().isoformat()
-        open_ = parse_float(row.get("open"))
-        high = parse_float(row.get("high"))
-        low = parse_float(row.get("low"))
-        close = parse_float(row.get("close"))
-        volume = parse_float(row.get("volume"))
-        if any(pd.isna(x) for x in [open_, high, low, close, volume]):
-            continue
-        parsed.append(
-            {
-                "date": date,
-                "symbol": symbol,
-                "open": open_,
-                "high": high,
-                "low": low,
-                "close": close,
-                "vwap": (open_ + high + low + close) / 4,
-                "volume": volume,
-            }
-        )
-
-    min_history_rows = int(config["universe"]["min_history_rows"])
-    if len(parsed) < min_history_rows:
-        return symbol, len(parsed), f"history < {min_history_rows} rows"
-
-    frame = pd.DataFrame(parsed).sort_values("date")
-    frame.to_csv(source_dir / f"{symbol}.csv", index=False)
-    return symbol, len(frame), None
-
-
-def prepare_source_csv(universe: pd.DataFrame, config: dict[str, Any], paths: dict[str, Path]) -> pd.DataFrame:
-    source_dir = paths["source_dir"]
-    if source_dir.exists():
-        shutil.rmtree(source_dir)
-    source_dir.mkdir(parents=True, exist_ok=True)
-
-    failures = []
-    symbols = list(universe["symbol"])
-    print(f"Downloading Nasdaq historical OHLCV for {len(symbols)} symbols...")
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-        future_to_symbol = {
-            executor.submit(download_symbol_history, symbol, config, source_dir): symbol for symbol in symbols
-        }
-        for index, future in enumerate(concurrent.futures.as_completed(future_to_symbol), start=1):
-            symbol, rows, error = future.result()
-            if error:
-                failures.append({"symbol": symbol, "rows": rows, "error": error})
-            if index % 50 == 0 or index == len(symbols):
-                print(f"Downloaded {index}/{len(symbols)}; failures/skips: {len(failures)}")
-
-    failure_frame = pd.DataFrame(failures, columns=["symbol", "rows", "error"])
-    failure_frame.to_csv(paths["failures_csv"], index=False)
-    return failure_frame
 
 
 def dump_qlib_bin(config: dict[str, Any], paths: dict[str, Path]) -> None:
@@ -422,6 +269,14 @@ def fmt_money(value: float) -> str:
     return f"${value:,.0f}"
 
 
+def fmt_optional_money(value: Any) -> str:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return "N/A"
+    return fmt_money(numeric)
+
+
 def format_yaml_block(value: Any) -> list[str]:
     dumped = yaml.safe_dump(value, allow_unicode=True, sort_keys=False).strip()
     return ["```yaml", dumped, "```"]
@@ -453,18 +308,11 @@ def write_report(
         "",
         "## 股票池规则",
         "",
-        f"- 交易所：{config['universe']['exchange']}",
-        f"- 总市值前 N：{config['universe']['top_n_by_market_cap']}",
-        f"- 排除 ETF：{config['universe']['exclude_etf']}",
-        f"- 排除测试证券：{config['universe']['exclude_test_issue']}",
-        f"- 最小历史行数：{config['universe']['min_history_rows']}",
+        *format_yaml_block(config["universe"]),
         "",
         "## 数据口径",
         "",
-        f"- 数据源：{config['data']['source']}",
-        f"- 回看自然日：{config['data']['lookback_days']}",
-        f"- 频率：{config['data']['freq']}",
-        f"- VWAP 近似：{config['data']['vwap_method']}",
+        *format_yaml_block(config["data"]),
         "",
         "## 标签与特征",
         "",
@@ -487,20 +335,19 @@ def write_report(
         "",
         f"## Top {top_n} 预测结果",
         "",
-        "| Rank | Symbol | Name | Qlib Score | Market Cap | Last Sale | Sector | Industry |",
-        "|---:|---|---|---:|---:|---:|---|---|",
+        "| Rank | Symbol | Name | Qlib Score | Market Cap | Sector | Industry |",
+        "|---:|---|---|---:|---:|---|---|",
     ]
-    for rank, row in enumerate(top_predictions.itertuples(index=False), start=1):
+    for rank, (_, row) in enumerate(top_predictions.iterrows(), start=1):
         lines.append(
-            "| {rank} | {symbol} | {name} | {score:.8f} | {market_cap} | {last_sale:.2f} | {sector} | {industry} |".format(
+            "| {rank} | {symbol} | {name} | {score:.8f} | {market_cap} | {sector} | {industry} |".format(
                 rank=rank,
-                symbol=row.symbol,
-                name=str(row.name).replace("|", "/"),
-                score=row.score,
-                market_cap=fmt_money(row.market_cap),
-                last_sale=row.last_sale if not pd.isna(row.last_sale) else math.nan,
-                sector=str(row.sector).replace("|", "/"),
-                industry=str(row.industry).replace("|", "/"),
+                symbol=row.get("symbol", row.get("instrument", "N/A")),
+                name=str(row.get("name", "")).replace("|", "/"),
+                score=float(row["score"]),
+                market_cap=fmt_optional_money(row.get("market_cap")),
+                sector=str(row.get("sector", "")).replace("|", "/"),
+                industry=str(row.get("industry", "")).replace("|", "/"),
             )
         )
 
@@ -525,6 +372,7 @@ def write_report(
             "## 输出文件",
             "",
             "- `universe.csv`：本次实验股票池。",
+            "- `membership.csv`：历史指数成分日级标记；仅 Norgate 等成分感知数据源生成有效内容。",
             "- `download_failures.csv`：下载失败或历史不足的股票。",
             "- `predictions.csv`：最新日全部模型分数。",
             "- `report.md`：本报告。",
@@ -545,17 +393,18 @@ def main() -> None:
 
     print(f"Experiment: {config['experiment']['name']}")
     print(f"Output dir: {paths['output_dir']}")
-    universe = load_top_universe(config, paths)
-    failures = prepare_source_csv(universe, config, paths)
+    try:
+        prepared = create_data_source(config, paths).prepare()
+    except DataSourceUnavailable as exc:
+        raise SystemExit(f"Data source unavailable: {exc}") from None
+    universe = prepared.universe
+    failures = prepared.failures
     dump_qlib_bin(config, paths)
     predictions, meta = train_and_predict(universe, config, paths)
     write_report(predictions, meta, failures, config, paths)
     print(f"Qlib model top {config['report']['top_n']}:")
-    print(
-        predictions[["symbol", "name", "score", "market_cap", "sector", "industry"]]
-        .head(int(config["report"]["top_n"]))
-        .to_string(index=False)
-    )
+    preview_columns = [column for column in ["symbol", "name", "score", "market_cap", "sector", "industry"] if column in predictions]
+    print(predictions[preview_columns].head(int(config["report"]["top_n"])).to_string(index=False))
     print(f"Report: {paths['report_md']}")
 
 

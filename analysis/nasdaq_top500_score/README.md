@@ -20,6 +20,21 @@ analysis/nasdaq_top500_score/configs/nasdaq_alpha158_lgbm_1d.yaml
   --config analysis/nasdaq_top500_score/configs/nasdaq_alpha158_lgbm_1d.yaml
 ```
 
+Norgate S&P 500 历史成分实验配置：
+
+```text
+analysis/nasdaq_top500_score/configs/norgate_sp500_alpha158_lgbm_1d.yaml
+```
+
+运行入口：
+
+```bash
+.venv/bin/python -u analysis/nasdaq_top500_score/run_qlib_alpha158_lightgbm.py \
+  --config analysis/nasdaq_top500_score/configs/norgate_sp500_alpha158_lgbm_1d.yaml
+```
+
+注意：真实 Norgate API 需要 Windows、Norgate Data Updater、有效订阅和 `norgatedata` 包。当前 Mac 环境只验证了适配器和 fixture 测试。
+
 以后要改股票池规模、数据回看天数、标签表达式、切分比例、模型参数和 TopN 报告数量，优先改 YAML，不直接改脚本。
 
 ## 输出目录
@@ -41,6 +56,8 @@ runs/nasdaq_alpha158_lgbm_1d/resolved_config.yaml
 runs/nasdaq_alpha158_lgbm_1d/qlib_source_csv/
 runs/nasdaq_alpha158_lgbm_1d/qlib_data/
 ```
+
+Norgate 配置会额外生成 `membership.csv`，记录每只股票在每个交易日是否属于历史指数成分。
 
 `resolved_config.yaml` 是复盘入口：它记录这次实验实际使用的股票池、标签、特征、切分和模型参数。
 

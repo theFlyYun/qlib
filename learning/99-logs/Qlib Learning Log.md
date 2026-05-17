@@ -64,6 +64,17 @@
 
 详细笔记：[[Alpha158 And Features]]
 
+## 2026-05-17 Norgate 数据源接入
+
+- 学习主题：用 Norgate 升级价格行情、退市股票和历史指数成分。
+- 策略假设：只有把历史股票池、复权和退市样本处理清楚，Alpha158 和 LightGBM 的验证结果才更接近真实可交易环境。
+- 当前动作：新增 `data.source: norgate` 的可测试适配器，默认股票池为 S&P 500 历史成分。
+- 核心理解：Norgate 不替代 Alpha158，而是给 Alpha158 提供更可靠的 OHLCV 和历史可交易范围。
+- 当前限制：Mac 本地没有 Windows/Norgate Data Updater/订阅，只完成 fake client 测试；真实数据拉取留到 Windows 环境。
+- 下一步：接入 SEC EDGAR，补财报披露日和 PIT 财报字段。
+
+详细笔记：[[Norgate Data Integration]]
+
 ## 复盘原则
 
 - 先写假设，再看结果。

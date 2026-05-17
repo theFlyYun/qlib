@@ -274,3 +274,93 @@ learning/README.md
 learning/00-start-here/Qlib Quant Learning Index.md
 learning/99-logs/Stage Completion Records.md
 ```
+
+## 2026-05-17 阶段 E.1：Norgate 可测试适配器
+
+目标：
+
+先从 Norgate 接入价格行情、退市股票和历史 S&P 500 成分，建立更严谨的 Alpha158 底层数据输入。
+
+为什么要做：
+
+当前 `nasdaq_public` 只能证明 Qlib 流水线能跑通，但它没有解决复权口径、退市股票、动态成分和幸存者偏差。Norgate 的作用是把“今天能看到的静态股票池”升级为“历史上当时真实属于指数的股票池”。
+
+输入数据：
+
+```text
+当前 Mac 本地使用 fake Norgate client / fixture 数据
+真实运行目标为 Norgate US Equities + US Equities Delisted
+首个股票池为 S&P 500 / $SPX 历史成分
+价格口径为 TOTALRETURN
+padding 为 NONE
+```
+
+核心概念：
+
+```text
+复权
+总回报价格
+退市股票
+历史指数成分
+幸存者偏差
+Alpha158 的底层 OHLCV 输入
+```
+
+实验动作：
+
+```text
+新增 data_sources 适配层
+保留 nasdaq_public 原行为
+新增 data.source: norgate
+新增 Norgate S&P 500 配置文件
+新增 membership.csv 输出路径
+新增 fixture 单元测试验证当前上市和退市候选池
+验证 membership 过滤非成分日期
+验证 download_failures.csv 记录无价格和无历史成分原因
+在 Mac 环境下验证无 norgatedata 时给出可读错误
+```
+
+评价指标：
+
+```text
+py_compile 通过
+Norgate adapter 单元测试通过
+YAML 配置可解析
+Markdown 链接和 wikilinks 无断链
+大型 CSV、Qlib bin 和缓存仍不进入 Git
+```
+
+结果解读：
+
+本阶段完成的是“可测试工程接口”，不是“真实 Norgate 数据已跑通”。真实运行仍需要 Windows、Norgate Data Updater、有效订阅和 `norgatedata` 包。
+
+Norgate 在当前模型中只负责升级底层行情和股票池。模型输入仍然是 Alpha158；区别是 Alpha158 将基于更长、更干净、包含退市和历史成分约束的 OHLCV 生成。
+
+遗留问题：
+
+```text
+尚未在 Windows + Norgate Data Updater 环境真实拉取数据
+尚未确认订阅级别是否包含 US Equities Delisted 和历史指数成分
+尚未用 Norgate 数据训练一次完整 Alpha158 + LightGBM
+尚未做 5 日标签和 TopK 成本后回测
+尚未接入 PIT 财报、估值、行业、宏观、新闻特征
+```
+
+下一阶段准备：
+
+建议下一步接入 SEC EDGAR，先补 10-K / 10-Q 披露日、财报字段和公告事件。目标是学习 PIT 财报如何按披露日对齐到日频样本，避免未来函数。
+
+产出文件：
+
+```text
+analysis/nasdaq_top500_score/data_sources/
+analysis/nasdaq_top500_score/configs/norgate_sp500_alpha158_lgbm_1d.yaml
+analysis/nasdaq_top500_score/run_qlib_alpha158_lightgbm.py
+analysis/nasdaq_top500_score/README.md
+tests/analysis/test_norgate_data_source.py
+learning/05-data-expansion/Norgate Data Integration.md
+learning/05-data-expansion/Data Source Upgrade Plan.md
+learning/05-data-expansion/Data Scope And Sources.md
+learning/README.md
+learning/00-start-here/Qlib Quant Learning Index.md
+```

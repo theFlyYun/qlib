@@ -32,6 +32,8 @@ data:
 
 每个数据源进入 Qlib 前都必须先通过验收表。
 
+当前已开始接入 Norgate。详细记录见 [[Norgate Data Integration]]。
+
 ## 数据分层
 
 ### 1. 价格行情
