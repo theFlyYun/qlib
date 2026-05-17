@@ -19,11 +19,13 @@ import pandas as pd
 import yaml
 
 try:
+    from backtest import run_topk_backtest
     from data_sources import DataSourceUnavailable, create_data_source
     from fundamentals import build_fundamental_features
     from industry import build_industry_feature_frame
     from selection import apply_bucket_ranking, apply_liquidity_filter, build_history_buckets
 except ImportError:  # pragma: no cover - supports importing this script as a module in tests.
+    from analysis.nasdaq_top500_score.backtest import run_topk_backtest
     from analysis.nasdaq_top500_score.data_sources import DataSourceUnavailable, create_data_source
     from analysis.nasdaq_top500_score.fundamentals import build_fundamental_features
     from analysis.nasdaq_top500_score.industry import build_industry_feature_frame
@@ -140,6 +142,7 @@ def validate_config(config: dict[str, Any]) -> None:
     validate_bucket_ranking(config)
     validate_industry_constraints(config)
     validate_liquidity_filter(config)
+    validate_backtest(config)
 
 
 def validate_bucket_ranking(config: dict[str, Any]) -> None:
@@ -188,6 +191,24 @@ def validate_liquidity_filter(config: dict[str, Any]) -> None:
         value = float(liquidity["max_zero_volume_ratio_60d"])
         if value < 0 or value > 1:
             raise ValueError("liquidity_filter.max_zero_volume_ratio_60d must be between 0 and 1")
+
+
+def validate_backtest(config: dict[str, Any]) -> None:
+    backtest = config.get("backtest", {})
+    if not backtest or not backtest.get("enabled", False):
+        return
+    positive_int_keys = ["top_n", "holding_days", "rebalance_days", "min_positions"]
+    for key in positive_int_keys:
+        if int(backtest.get(key, 0)) <= 0:
+            raise ValueError(f"backtest.{key} must be positive")
+    if int(backtest.get("entry_lag_days", 1)) < 0:
+        raise ValueError("backtest.entry_lag_days must be non-negative")
+    if float(backtest.get("cost_bps", 0.0)) < 0:
+        raise ValueError("backtest.cost_bps must be non-negative")
+    if backtest.get("price", "close") not in {"close", "vwap"}:
+        raise ValueError("backtest.price must be close or vwap")
+    if config.get("bucket_ranking", {}).get("enabled", False) and int(backtest["top_n"]) != int(config["report"]["top_n"]):
+        raise ValueError("bucketed backtest requires backtest.top_n to equal report.top_n")
 
 
 def date_value(value: Any) -> pd.Timestamp:
@@ -239,6 +260,10 @@ def build_paths(config: dict[str, Any]) -> dict[str, Path]:
         "predictions_csv": output_dir / "predictions.csv",
         "bucketed_predictions_csv": output_dir / "bucketed_predictions.csv",
         "selected_top10_csv": output_dir / "selected_top10.csv",
+        "test_predictions_csv": output_dir / "test_predictions.csv",
+        "backtest_nav_csv": output_dir / "backtest_nav.csv",
+        "backtest_positions_csv": output_dir / "backtest_positions.csv",
+        "backtest_summary": output_dir / "backtest_summary.yaml",
         "report_md": output_dir / "report.md",
         "resolved_config": output_dir / "resolved_config.yaml",
     }
@@ -421,6 +446,7 @@ def train_and_predict(
 
     pred_frame = pred.reset_index()
     pred_frame.columns = ["datetime", "instrument", "score"]
+    pred_frame.to_csv(paths["test_predictions_csv"], index=False)
     latest_date = pred_frame["datetime"].max()
     latest = pred_frame[pred_frame["datetime"] == latest_date].copy()
     latest["symbol"] = latest["instrument"].astype(str).str.upper()
@@ -442,6 +468,8 @@ def train_and_predict(
         ic_mean = float(ic.mean())
         rank_ic_mean = float(rank_ic.mean())
         ic_count = int(ic.notna().sum())
+
+    backtest_result = run_topk_backtest(pred_frame, universe, config, paths)
 
     meta = {
         "segments": segments,
@@ -472,6 +500,8 @@ def train_and_predict(
         "top_industry_counts": top_predictions["industry"].fillna("UNKNOWN").value_counts().to_dict()
         if "industry" in top_predictions
         else {},
+        "backtest_enabled": bool(backtest_result.summary.get("enabled", False)),
+        "backtest_summary": backtest_result.summary,
     }
     return top_predictions, meta
 
@@ -524,6 +554,26 @@ def format_yaml_block(value: Any) -> list[str]:
     return ["```yaml", dumped, "```"]
 
 
+def fmt_pct(value: Any) -> str:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return "N/A"
+    if math.isnan(numeric):
+        return "N/A"
+    return f"{numeric:.2%}"
+
+
+def fmt_number(value: Any, digits: int = 4) -> str:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return "N/A"
+    if math.isnan(numeric):
+        return "N/A"
+    return f"{numeric:.{digits}f}"
+
+
 def write_report(
     predictions: pd.DataFrame,
     meta: dict[str, Any],
@@ -558,6 +608,7 @@ def write_report(
         if "exclusion_reason" in liquidity_exclusions and not liquidity_exclusions.empty
         else {}
     )
+    backtest_summary = meta.get("backtest_summary", {})
     lines = [
         f"# {config['experiment']['name']} Report",
         "",
@@ -702,6 +753,37 @@ def write_report(
             "",
             "IC 可以粗略理解为：每个交易日横截面上，模型预测分数和真实后续收益的相关性。",
             "",
+            "## TopK 成本后回测",
+            "",
+            *(
+                [
+                    "- 回测状态：已启用。",
+                    "- 回测配置：",
+                    *format_yaml_block(backtest_summary.get("config", config.get("backtest", {}))),
+                    f"- 回测期数：{backtest_summary.get('period_count', 0)}",
+                    f"- 跳过期数：{backtest_summary.get('skipped_periods', 0)}",
+                    f"- 起始入场日：{backtest_summary.get('start_entry_date', 'N/A')}",
+                    f"- 最终退出日：{backtest_summary.get('end_exit_date', 'N/A')}",
+                    f"- 累计收益：{fmt_pct(backtest_summary.get('cumulative_return'))}",
+                    f"- 年化收益：{fmt_pct(backtest_summary.get('annualized_return'))}",
+                    f"- 年化波动：{fmt_pct(backtest_summary.get('annualized_volatility'))}",
+                    f"- 信息比率：{fmt_number(backtest_summary.get('information_ratio'), 3)}",
+                    f"- 最大回撤：{fmt_pct(backtest_summary.get('max_drawdown'))}",
+                    f"- 平均单期毛收益：{fmt_pct(backtest_summary.get('avg_gross_return'))}",
+                    f"- 平均单期净收益：{fmt_pct(backtest_summary.get('avg_net_return'))}",
+                    f"- 胜率：{fmt_pct(backtest_summary.get('win_rate'))}",
+                    f"- 平均换手：{fmt_pct(backtest_summary.get('avg_turnover'))}",
+                    f"- 累计成本扣减：{fmt_pct(backtest_summary.get('total_cost_return'))}",
+                    f"- 平均持仓数量：{fmt_number(backtest_summary.get('avg_position_count'), 2)}",
+                    "- 出现次数最多的持仓：",
+                    *format_yaml_block(backtest_summary.get("top_symbols_by_holding_count", {})),
+                    "",
+                    "本回测使用测试期每日模型分数，按配置的调仓间隔做非重叠 TopK 组合；信号日后一个交易日入场，持有指定交易日后退出，并扣除单边交易成本。它仍是学习研究材料，不是投资建议。",
+                ]
+                if meta.get("backtest_enabled", False)
+                else ["- 未启用。"]
+            ),
+            "",
             "## 流动性过滤",
             "",
             *(
@@ -782,6 +864,10 @@ def write_report(
             "- `predictions.csv`：最新日全部模型分数。",
             "- `bucketed_predictions.csv`：追加历史分桶、桶内排名和全局排名后的全部模型分数。",
             "- `selected_top10.csv`：按历史长度桶名额选择后的最终 Top10。",
+            "- `test_predictions.csv`：测试期所有交易日的模型预测分数，回测使用这个文件。",
+            "- `backtest_nav.csv`：TopK 成本后回测每期净值、收益、换手和成本。",
+            "- `backtest_positions.csv`：每个回测期实际持仓、权重、入场价、退出价和单票收益。",
+            "- `backtest_summary.yaml`：回测汇总指标。",
             "- `report.md`：本报告。",
             "- `resolved_config.yaml`：本次实际使用配置，复盘时优先看它。",
             "- `qlib_source_csv/`：逐股票原始日线 CSV。",

@@ -107,7 +107,7 @@ export SEC_EDGAR_USER_AGENT="Your Name your-email@example.com"
   --config analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_lgbm_10y_clean_bucket_top10.yaml
 ```
 
-运行同一口径、未来 5 日收益标签的 EDGAR 实验：
+运行同一口径、未来 5 日收益标签和 Top10 成本后回测的 EDGAR 实验：
 
 ```bash
 export SEC_EDGAR_USER_AGENT="Your Name your-email@example.com"
@@ -167,6 +167,19 @@ PY
 
 ```bash
 sed -n '1,260p' analysis/nasdaq_top500_score/runs/nasdaq_alpha158_edgar_lgbm_10y_clean_bucket_top10_5d/report.md
+```
+
+复盘 TopK 成本后回测：
+
+```bash
+sed -n '1,120p' analysis/nasdaq_top500_score/runs/nasdaq_alpha158_edgar_lgbm_10y_clean_bucket_top10_5d/backtest_summary.yaml
+
+.venv/bin/python - <<'PY'
+import pandas as pd
+run = "analysis/nasdaq_top500_score/runs/nasdaq_alpha158_edgar_lgbm_10y_clean_bucket_top10_5d"
+print(pd.read_csv(f"{run}/backtest_nav.csv").tail())
+print(pd.read_csv(f"{run}/backtest_positions.csv").head())
+PY
 ```
 
 ## 测试与验证

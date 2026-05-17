@@ -104,7 +104,7 @@ export SEC_EDGAR_USER_AGENT="Your Name your-email@example.com"
 analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_lgbm_10y_clean_bucket_top10_5d.yaml
 ```
 
-该配置只把标签改为：
+该配置把标签改为未来 5 个交易日收益，并启用第一版 Top10 成本后回测：
 
 ```text
 Ref($close, -6) / Ref($close, -1) - 1
@@ -117,6 +117,16 @@ export SEC_EDGAR_USER_AGENT="Your Name your-email@example.com"
 
 .venv/bin/python -u analysis/nasdaq_top500_score/run_qlib_alpha158_lightgbm.py \
   --config analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_lgbm_10y_clean_bucket_top10_5d.yaml
+```
+
+回测口径：
+
+```text
+Top10
+每 5 个交易日调仓
+信号日后 1 个交易日收盘买入
+持有 5 个交易日
+单边交易成本 10 bps
 ```
 
 Norgate S&P 500 历史成分实验配置：
@@ -212,6 +222,8 @@ EDGAR 配置会额外生成 `fundamental_features.parquet`、`fundamental_failur
 行业配置会额外生成 `industry_features.parquet` 和 `industry_failures.csv`。
 
 证券主数据、流动性过滤、分桶和行业约束配置会额外生成 `security_master.csv`、`security_master_exclusions.csv`、`universe_exclusions.csv`、`liquidity_profile.csv`、`liquidity_exclusions.csv`、`history_buckets.csv`、`bucketed_predictions.csv` 和 `selected_top10.csv`。
+
+启用回测的配置会额外生成 `test_predictions.csv`、`backtest_nav.csv`、`backtest_positions.csv` 和 `backtest_summary.yaml`。
 
 `resolved_config.yaml` 是复盘入口：它记录这次实验实际使用的股票池、标签、特征、切分和模型参数。
 

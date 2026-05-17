@@ -111,3 +111,14 @@ model:
 
 report:
   top_n: 10
+
+backtest:
+  enabled: true
+  strategy: bucketed_topk
+  top_n: 10
+  holding_days: 5
+  rebalance_days: 5
+  entry_lag_days: 1
+  price: close
+  cost_bps: 10
+  min_positions: 5

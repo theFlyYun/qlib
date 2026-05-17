@@ -1457,3 +1457,117 @@ learning/00-start-here/Qlib Commands.md
 learning/99-logs/Qlib Learning Log.md
 learning/99-logs/Stage Completion Records.md
 ```
+
+## 2026-05-17 第 5 条：TopK 成本后回测
+
+目标：
+
+把未来 5 日收益标签下的模型分数转成组合净值，记录成本后收益、最大回撤、换手率和收益风险比。
+
+为什么要做：
+
+IC / Rank IC 只衡量模型分数和未来收益的横截面相关性，不代表组合能交易。TopK 回测把排序信号变成持仓、调仓、成本和净值，能看到策略层面的风险。
+
+输入数据：
+
+```text
+Nasdaq public 当前市值前 500
+固定行情窗口：2016-05-17 到 2026-05-17
+训练期：2016-08-11 到 2021-12-31
+验证期：2022-01-03 到 2023-12-29
+测试期：2024-01-02 到 2026-05-15
+Alpha158 价格成交量特征
+SEC EDGAR PIT 财报估值特征
+未来 5 日收益标签
+```
+
+核心概念：
+
+```text
+信号日：模型打分当天
+入场日：信号日后 1 个交易日
+退出日：入场后第 5 个交易日
+TopK：按 score 排名前 K
+换手率：新旧持仓权重变化之和
+成本后收益：毛收益 - 交易成本
+最大回撤：净值从高点回落的最大幅度
+信息比率：平均收益 / 收益波动，按年化调仓期换算
+```
+
+实验动作：
+
+```text
+新增 analysis/nasdaq_top500_score/backtest.py
+主流水线生成 test_predictions.csv
+对测试期所有信号日做非重叠 5 日 Top10 回测
+继续使用历史长度桶名额 4/3/2/1
+继续使用 sector <= 4、industry <= 2 行业约束
+设置单边交易成本 10 bps
+输出 backtest_nav.csv、backtest_positions.csv、backtest_summary.yaml
+更新 report.md 和学习文档
+```
+
+评价指标：
+
+```text
+回测期数
+累计收益
+年化收益
+年化波动
+信息比率
+最大回撤
+胜率
+平均换手
+累计成本扣减
+平均持仓数量
+```
+
+结果解读：
+
+```text
+回测期数：118
+起始入场日：2024-01-03
+最终退出日：2026-05-12
+累计收益：2225.10%
+年化收益：283.38%
+年化波动：49.88%
+信息比率：2.966
+最大回撤：-18.11%
+胜率：66.95%
+平均换手：110.93%
+累计成本扣减：13.09%
+平均持仓数量：9.31
+```
+
+这个结果说明当前学习口径下，模型排序可以形成正收益组合。但收益非常高，必须谨慎解读：它不是投资建议，也不是严谨生产级回测结论。
+
+遗留问题：
+
+```text
+股票池仍使用当前 Nasdaq public snapshot，不是历史 PIT 成分池
+没有退市股票，仍有幸存者偏差
+行情不是专业复权数据
+只用收盘价成交，没有真实滑点、冲击成本和成交容量
+没有和 Nasdaq 100、QQQ 或 S&P 500 做基准超额收益比较
+没有分析行业暴露和单票贡献
+没有处理重叠持有期组合
+```
+
+下一阶段准备：
+
+进入第 6 条：基准与风险复盘。目标是把绝对收益拆成基准收益、超额收益、行业暴露、单票贡献、换手和回撤来源。
+
+产出文件：
+
+```text
+analysis/nasdaq_top500_score/backtest.py
+analysis/nasdaq_top500_score/run_qlib_alpha158_lightgbm.py
+analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_lgbm_10y_clean_bucket_top10_5d.yaml
+tests/analysis/test_topk_backtest.py
+learning/04-strategy-backtest/TopK Cost Backtest.md
+learning/04-strategy-backtest/Backtest And Costs.md
+learning/04-strategy-backtest/TopK Strategy.md
+learning/00-start-here/Qlib Commands.md
+learning/99-logs/Qlib Learning Log.md
+learning/99-logs/Stage Completion Records.md
+```
