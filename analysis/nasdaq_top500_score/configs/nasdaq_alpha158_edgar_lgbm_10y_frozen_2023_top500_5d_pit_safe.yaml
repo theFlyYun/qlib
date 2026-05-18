@@ -145,3 +145,7 @@ benchmark:
   series_id: NASDAQCOM
   name: Nasdaq Composite Index
   refresh: false
+
+attribution:
+  enabled: true
+  top_n: 10

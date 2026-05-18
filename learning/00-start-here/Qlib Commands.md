@@ -141,6 +141,12 @@ backtest_nav.csv
 backtest_summary.yaml
 benchmark_prices.csv
 benchmark_summary.yaml
+contribution_by_symbol.csv
+contribution_by_sector.csv
+contribution_by_industry.csv
+exposure_by_sector.csv
+exposure_by_industry.csv
+contribution_summary.yaml
 report.md
 ```
 

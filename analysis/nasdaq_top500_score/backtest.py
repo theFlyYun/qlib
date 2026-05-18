@@ -145,6 +145,9 @@ def run_topk_backtest(
     nav_frame, benchmark_summary = attach_benchmark(nav_frame, config, paths, price_column)
     if benchmark_summary:
         summary["benchmark"] = benchmark_summary
+    positions, attribution_summary = build_attribution(nav_frame, positions, paths, config)
+    if attribution_summary:
+        summary["attribution"] = attribution_summary
     result = BacktestResult(nav=nav_frame, positions=positions, summary=summary)
     write_backtest_outputs(result, paths)
     return result
@@ -547,6 +550,191 @@ def summarize_benchmark(
         "win_rate_vs_benchmark": float((excess_returns > 0).mean()),
         "config": benchmark_config,
     }
+
+
+def build_attribution(
+    nav: pd.DataFrame,
+    positions: pd.DataFrame,
+    paths: dict[str, Path],
+    config: dict[str, Any],
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    attribution_config = config.get("attribution", {})
+    if nav.empty or positions.empty or not attribution_config.get("enabled", True):
+        write_empty_attribution_outputs(paths)
+        return positions, {}
+
+    enriched_positions = add_position_contributions(nav, positions)
+    symbol_contribution = aggregate_position_contribution(enriched_positions, ["symbol"])
+    sector_contribution = aggregate_position_contribution(enriched_positions, ["sector"])
+    industry_contribution = aggregate_position_contribution(enriched_positions, ["industry"])
+    sector_exposure = aggregate_exposure(enriched_positions, "sector")
+    industry_exposure = aggregate_exposure(enriched_positions, "industry")
+    top_n = int(attribution_config.get("top_n", 10))
+    summary = summarize_attribution(symbol_contribution, sector_contribution, industry_contribution, top_n)
+
+    output_frames = {
+        "contribution_by_symbol": symbol_contribution,
+        "contribution_by_sector": sector_contribution,
+        "contribution_by_industry": industry_contribution,
+        "exposure_by_sector": sector_exposure,
+        "exposure_by_industry": industry_exposure,
+    }
+    for key, frame in output_frames.items():
+        if key in paths:
+            frame.to_csv(paths[key], index=False)
+    if "contribution_summary" in paths:
+        paths["contribution_summary"].write_text(
+            yaml.safe_dump(summary, allow_unicode=True, sort_keys=False),
+            encoding="utf-8",
+        )
+    return enriched_positions, summary
+
+
+def add_position_contributions(nav: pd.DataFrame, positions: pd.DataFrame) -> pd.DataFrame:
+    period_costs = nav[["period", "cost_return", "net_return"]].copy()
+    if "benchmark_return" in nav:
+        period_costs["benchmark_return"] = nav["benchmark_return"]
+    derived_columns = [
+        "cost_return",
+        "net_return",
+        "benchmark_return",
+        "gross_contribution",
+        "cost_contribution",
+        "net_contribution",
+        "benchmark_contribution",
+        "excess_contribution",
+    ]
+    enriched = positions.drop(columns=[column for column in derived_columns if column in positions], errors="ignore")
+    enriched = enriched.merge(period_costs, on="period", how="left")
+    enriched["gross_contribution"] = pd.to_numeric(enriched["weight"], errors="coerce") * pd.to_numeric(
+        enriched["gross_return"],
+        errors="coerce",
+    )
+    period_counts = enriched.groupby("period")["symbol"].transform("count").replace(0, pd.NA)
+    enriched["cost_contribution"] = pd.to_numeric(enriched["cost_return"], errors="coerce").fillna(0.0) / period_counts
+    enriched["net_contribution"] = enriched["gross_contribution"] - enriched["cost_contribution"]
+    if "benchmark_return" in enriched:
+        enriched["benchmark_contribution"] = pd.to_numeric(enriched["weight"], errors="coerce") * pd.to_numeric(
+            enriched["benchmark_return"],
+            errors="coerce",
+        )
+        enriched["excess_contribution"] = enriched["net_contribution"] - enriched["benchmark_contribution"]
+    return enriched
+
+
+def aggregate_position_contribution(positions: pd.DataFrame, group_columns: list[str]) -> pd.DataFrame:
+    working = positions.copy()
+    for column in group_columns:
+        working[column] = working[column].fillna("UNKNOWN").replace("", "UNKNOWN")
+    grouped = working.groupby(group_columns, dropna=False)
+    result = grouped.agg(
+        holding_count=("symbol", "size"),
+        period_count=("period", "nunique"),
+        avg_weight=("weight", "mean"),
+        avg_score=("score", "mean"),
+        avg_gross_return=("gross_return", "mean"),
+        win_rate=("gross_return", lambda series: float((series > 0).mean())),
+        gross_contribution_sum=("gross_contribution", "sum"),
+        cost_contribution_sum=("cost_contribution", "sum"),
+        net_contribution_sum=("net_contribution", "sum"),
+        best_single_position_return=("gross_return", "max"),
+        worst_single_position_return=("gross_return", "min"),
+    ).reset_index()
+    if "excess_contribution" in working.columns:
+        excess = grouped["excess_contribution"].sum().reset_index(name="excess_contribution_sum")
+        result = result.merge(excess, on=group_columns, how="left")
+    return result.sort_values("net_contribution_sum", ascending=False).reset_index(drop=True)
+
+
+def aggregate_exposure(positions: pd.DataFrame, group_column: str) -> pd.DataFrame:
+    if group_column not in positions:
+        return pd.DataFrame(columns=[group_column, "avg_weight", "max_weight", "period_count"])
+    working = positions.copy()
+    working[group_column] = working[group_column].fillna("UNKNOWN").replace("", "UNKNOWN")
+    period_exposure = working.groupby(["period", group_column], dropna=False)["weight"].sum().reset_index()
+    return (
+        period_exposure.groupby(group_column, dropna=False)
+        .agg(
+            avg_weight=("weight", "mean"),
+            max_weight=("weight", "max"),
+            period_count=("period", "nunique"),
+        )
+        .reset_index()
+        .sort_values("avg_weight", ascending=False)
+        .reset_index(drop=True)
+    )
+
+
+def summarize_attribution(
+    symbol_contribution: pd.DataFrame,
+    sector_contribution: pd.DataFrame,
+    industry_contribution: pd.DataFrame,
+    top_n: int,
+) -> dict[str, Any]:
+    total_positive = float(symbol_contribution["net_contribution_sum"].clip(lower=0).sum()) if not symbol_contribution.empty else 0.0
+    top_positive = (
+        float(symbol_contribution["net_contribution_sum"].clip(lower=0).sort_values(ascending=False).head(5).sum())
+        if not symbol_contribution.empty
+        else 0.0
+    )
+    return {
+        "enabled": True,
+        "top_positive_contribution_share": top_positive / total_positive if total_positive > 0 else math.nan,
+        "top_symbols": records_for_yaml(symbol_contribution.head(top_n), "symbol"),
+        "bottom_symbols": records_for_yaml(symbol_contribution.sort_values("net_contribution_sum").head(top_n), "symbol"),
+        "top_sectors": records_for_yaml(sector_contribution.head(top_n), "sector"),
+        "bottom_sectors": records_for_yaml(sector_contribution.sort_values("net_contribution_sum").head(top_n), "sector"),
+        "top_industries": records_for_yaml(industry_contribution.head(top_n), "industry"),
+        "bottom_industries": records_for_yaml(industry_contribution.sort_values("net_contribution_sum").head(top_n), "industry"),
+    }
+
+
+def records_for_yaml(frame: pd.DataFrame, label_column: str) -> list[dict[str, Any]]:
+    if frame.empty:
+        return []
+    output_columns = [
+        label_column,
+        "holding_count",
+        "period_count",
+        "net_contribution_sum",
+        "gross_contribution_sum",
+        "win_rate",
+        "avg_weight",
+    ]
+    if "excess_contribution_sum" in frame.columns:
+        output_columns.append("excess_contribution_sum")
+    records = []
+    for row in frame[output_columns].to_dict("records"):
+        records.append({key: normalize_yaml_scalar(value) for key, value in row.items()})
+    return records
+
+
+def normalize_yaml_scalar(value: Any) -> Any:
+    if pd.isna(value):
+        return None
+    if isinstance(value, (int, str, bool)):
+        return value
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return value
+
+
+def write_empty_attribution_outputs(paths: dict[str, Path]) -> None:
+    for key in [
+        "contribution_by_symbol",
+        "contribution_by_sector",
+        "contribution_by_industry",
+        "exposure_by_sector",
+        "exposure_by_industry",
+    ]:
+        if key in paths:
+            pd.DataFrame().to_csv(paths[key], index=False)
+    if "contribution_summary" in paths:
+        paths["contribution_summary"].write_text(
+            yaml.safe_dump({"enabled": False}, allow_unicode=True, sort_keys=False),
+            encoding="utf-8",
+        )
 
 
 def read_history_buckets(path: Path) -> pd.DataFrame:

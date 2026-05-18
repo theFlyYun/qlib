@@ -173,6 +173,17 @@ Beta：1.092
 
 这说明冻结股票池后，策略虽然有绝对收益，但没有跑赢纳斯达克综合指数。
 
+同一配置还会生成持仓贡献和行业暴露复盘：
+
+```text
+contribution_by_symbol.csv
+contribution_by_sector.csv
+contribution_by_industry.csv
+exposure_by_sector.csv
+exposure_by_industry.csv
+contribution_summary.yaml
+```
+
 回测口径：
 
 ```text

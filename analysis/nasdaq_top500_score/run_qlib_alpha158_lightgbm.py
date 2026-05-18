@@ -145,6 +145,7 @@ def validate_config(config: dict[str, Any]) -> None:
     validate_liquidity_filter(config)
     validate_backtest(config)
     validate_benchmark(config)
+    validate_attribution(config)
 
 
 def validate_universe_selection(config: dict[str, Any]) -> None:
@@ -255,6 +256,16 @@ def validate_benchmark(config: dict[str, Any]) -> None:
         raise ValueError("enabled benchmark requires benchmark.symbol")
 
 
+def validate_attribution(config: dict[str, Any]) -> None:
+    attribution = config.get("attribution", {})
+    if not attribution or not attribution.get("enabled", False):
+        return
+    if not config.get("backtest", {}).get("enabled", False):
+        raise ValueError("enabled attribution requires backtest.enabled: true")
+    if int(attribution.get("top_n", 10)) <= 0:
+        raise ValueError("attribution.top_n must be positive")
+
+
 def date_value(value: Any) -> pd.Timestamp:
     if isinstance(value, str) and value == "latest":
         return pd.Timestamp.today().normalize()
@@ -312,6 +323,12 @@ def build_paths(config: dict[str, Any]) -> dict[str, Path]:
         "backtest_summary": output_dir / "backtest_summary.yaml",
         "benchmark_prices_csv": output_dir / "benchmark_prices.csv",
         "benchmark_summary": output_dir / "benchmark_summary.yaml",
+        "contribution_by_symbol": output_dir / "contribution_by_symbol.csv",
+        "contribution_by_sector": output_dir / "contribution_by_sector.csv",
+        "contribution_by_industry": output_dir / "contribution_by_industry.csv",
+        "exposure_by_sector": output_dir / "exposure_by_sector.csv",
+        "exposure_by_industry": output_dir / "exposure_by_industry.csv",
+        "contribution_summary": output_dir / "contribution_summary.yaml",
         "report_md": output_dir / "report.md",
         "resolved_config": output_dir / "resolved_config.yaml",
     }
@@ -669,6 +686,7 @@ def write_report(
     )
     backtest_summary = meta.get("backtest_summary", {})
     benchmark_summary = backtest_summary.get("benchmark", {})
+    attribution_summary = backtest_summary.get("attribution", {})
     lines = [
         f"# {config['experiment']['name']} Report",
         "",
@@ -881,6 +899,31 @@ def write_report(
                 ]
             ),
             "",
+            "## 持仓贡献与行业暴露",
+            "",
+            *(
+                [
+                    "- 贡献复盘：已启用。",
+                    f"- 前 5 大正贡献占全部正贡献比例：{fmt_pct(attribution_summary.get('top_positive_contribution_share'))}",
+                    "- 正贡献最大的股票：",
+                    *format_yaml_block(attribution_summary.get("top_symbols", [])[:5]),
+                    "- 负贡献最大的股票：",
+                    *format_yaml_block(attribution_summary.get("bottom_symbols", [])[:5]),
+                    "- 正贡献最大的 sector：",
+                    *format_yaml_block(attribution_summary.get("top_sectors", [])[:5]),
+                    "- 负贡献最大的 sector：",
+                    *format_yaml_block(attribution_summary.get("bottom_sectors", [])[:5]),
+                    "- 正贡献最大的 industry：",
+                    *format_yaml_block(attribution_summary.get("top_industries", [])[:5]),
+                    "- 负贡献最大的 industry：",
+                    *format_yaml_block(attribution_summary.get("bottom_industries", [])[:5]),
+                    "",
+                    "贡献口径：单票净贡献 = 持仓权重 × 单票收益 - 当期交易成本按持仓数平均分摊。行业暴露来自回测实际持仓权重，不是模型特征重要性。",
+                ]
+                if attribution_summary.get("enabled", False)
+                else ["- 未启用。"]
+            ),
+            "",
             "## 流动性过滤",
             "",
             *(
@@ -969,6 +1012,12 @@ def write_report(
             "- `backtest_summary.yaml`：回测汇总指标。",
             "- `benchmark_prices.csv`：基准资产价格数据；仅启用基准复盘时生成有效内容。",
             "- `benchmark_summary.yaml`：基准、超额收益、alpha/beta 和跟踪误差摘要。",
+            "- `contribution_by_symbol.csv`：按股票聚合的持仓贡献。",
+            "- `contribution_by_sector.csv`：按 sector 聚合的持仓贡献。",
+            "- `contribution_by_industry.csv`：按 industry 聚合的持仓贡献。",
+            "- `exposure_by_sector.csv`：按 sector 聚合的平均/最大持仓权重。",
+            "- `exposure_by_industry.csv`：按 industry 聚合的平均/最大持仓权重。",
+            "- `contribution_summary.yaml`：持仓贡献和行业暴露摘要。",
             "- `report.md`：本报告。",
             "- `resolved_config.yaml`：本次实际使用配置，复盘时优先看它。",
             "- `qlib_source_csv/`：逐股票原始日线 CSV。",

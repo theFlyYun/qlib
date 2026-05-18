@@ -260,6 +260,20 @@
 
 详细笔记：[[Benchmark And Excess Return Review]]
 
+## 2026-05-18 持仓贡献与行业暴露复盘
+
+- 学习主题：拆解冻结股票池 Top10 策略的收益来源和亏损来源。
+- 当前动作：在回测阶段为每个持仓计算 `gross_contribution`、`cost_contribution`、`net_contribution` 和 `excess_contribution`，并按股票、sector、industry 聚合。
+- 新增输出：`contribution_by_symbol.csv`、`contribution_by_sector.csv`、`contribution_by_industry.csv`、`exposure_by_sector.csv`、`exposure_by_industry.csv`、`contribution_summary.yaml`。
+- 贡献口径：单票净贡献 = 持仓权重 × 单票收益 - 当期交易成本按持仓数平均分摊。
+- 本次结果：前 5 大正贡献股票占全部正贡献 `30.95%`；正贡献最大股票为 `ASST`、`IBRX`、`CAR`、`IOVA`、`OPEN`；负贡献最大股票为 `IQ`、`VFS`、`UPST`、`FTRE`、`IRTC`。
+- 行业结果：正贡献最大的 sector 是 `Technology`、`Health Care`、`Basic Materials`；负贡献最大的 sector 是 `Finance`、`Miscellaneous`、`Consumer Staples`。
+- 暴露结果：平均 sector 暴露最高的是 `Health Care 32.85%`、`Technology 27.03%`、`Consumer Discretionary 17.49%`。
+- 当前判断：策略收益并非完全靠一两只股票，但行业暴露偏向 Health Care 和 Technology；下一步应做行业中性 TopK 或行业内排名，而不是直接加模型复杂度。
+- 下一步：实现行业中性 TopK，对比当前桶内 Top10 是否能改善超额收益和回撤。
+
+详细笔记：[[Position Contribution And Exposure Review]]
+
 ## 复盘原则
 
 - 先写假设，再看结果。

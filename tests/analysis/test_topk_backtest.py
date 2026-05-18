@@ -88,6 +88,7 @@ def test_topk_backtest_uses_signal_entry_exit_costs_and_writes_outputs(tmp_path:
             "symbol": "QQQ",
             "name": "Invesco QQQ Trust",
         },
+        "attribution": {"enabled": True, "top_n": 5},
     }
     paths = {
         "source_dir": source_dir,
@@ -97,6 +98,12 @@ def test_topk_backtest_uses_signal_entry_exit_costs_and_writes_outputs(tmp_path:
         "backtest_positions_csv": tmp_path / "backtest_positions.csv",
         "backtest_summary": tmp_path / "backtest_summary.yaml",
         "benchmark_summary": tmp_path / "benchmark_summary.yaml",
+        "contribution_by_symbol": tmp_path / "contribution_by_symbol.csv",
+        "contribution_by_sector": tmp_path / "contribution_by_sector.csv",
+        "contribution_by_industry": tmp_path / "contribution_by_industry.csv",
+        "exposure_by_sector": tmp_path / "exposure_by_sector.csv",
+        "exposure_by_industry": tmp_path / "exposure_by_industry.csv",
+        "contribution_summary": tmp_path / "contribution_summary.yaml",
     }
 
     result = run_topk_backtest(predictions, universe, config, paths)
@@ -110,11 +117,22 @@ def test_topk_backtest_uses_signal_entry_exit_costs_and_writes_outputs(tmp_path:
     assert math.isclose(float(result.nav.iloc[0]["benchmark_return"]), 0.02, rel_tol=0, abs_tol=1e-9)
     assert math.isclose(float(result.nav.iloc[0]["excess_return"]), 0.029, rel_tol=0, abs_tol=1e-9)
     assert result.summary["benchmark"]["symbol"] == "QQQ"
+    assert "gross_contribution" in result.positions.columns
+    assert "net_contribution" in result.positions.columns
+    first_period_net_contribution = result.positions[result.positions["period"] == 1]["net_contribution"].sum()
+    assert math.isclose(float(first_period_net_contribution), 0.049, rel_tol=0, abs_tol=1e-9)
+    assert result.summary["attribution"]["enabled"] is True
+    assert result.summary["attribution"]["top_symbols"][0]["symbol"] == "AAA"
     assert paths["backtest_nav_csv"].exists()
     assert paths["backtest_positions_csv"].exists()
     assert paths["benchmark_summary"].exists()
+    assert paths["contribution_by_symbol"].exists()
+    assert paths["contribution_by_sector"].exists()
+    assert paths["contribution_summary"].exists()
     summary = yaml.safe_load(paths["backtest_summary"].read_text(encoding="utf-8"))
     assert summary["period_count"] == result.summary["period_count"]
+    contribution = pd.read_csv(paths["contribution_by_symbol"])
+    assert contribution.iloc[0]["symbol"] == "AAA"
 
 
 def test_topk_backtest_point_in_time_filters_use_signal_date_history_and_liquidity(tmp_path: Path) -> None:

@@ -50,6 +50,7 @@
 - [PIT Safe Backtest](<04-strategy-backtest/PIT Safe Backtest.md>)
 - [Future Information Audit](<04-strategy-backtest/Future Information Audit.md>)
 - [Benchmark And Excess Return Review](<04-strategy-backtest/Benchmark And Excess Return Review.md>)
+- [Position Contribution And Exposure Review](<04-strategy-backtest/Position Contribution And Exposure Review.md>)
 
 ### 05 Data Expansion
 

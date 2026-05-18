@@ -295,6 +295,100 @@ learning/99-logs/Qlib Learning Log.md
 learning/99-logs/Stage Completion Records.md
 ```
 
+## 2026-05-18 第 5.4 条：持仓贡献与行业暴露复盘
+
+目标：
+
+拆解冻结股票池 Top10 策略的收益和亏损来源，回答收益是否集中在少数股票或行业。
+
+为什么要做：
+
+基准复盘已经显示策略没有跑赢 NASDAQCOM。继续调模型前，必须先知道当前策略到底亏在哪里、赚在哪里，以及是否只是行业暴露造成的结果。
+
+输入数据：
+
+```text
+backtest_nav.csv
+backtest_positions.csv
+策略每期持仓、权重、单票收益
+NASDAQCOM 基准收益
+sector / industry 信息
+```
+
+核心概念：
+
+```text
+毛贡献：持仓权重 * 单票收益
+成本贡献：当期总交易成本 / 当期持仓数量
+净贡献：毛贡献 - 成本贡献
+超额贡献：净贡献 - 持仓权重 * 基准收益
+行业暴露：每期同一行业持仓权重之和
+贡献集中度：前几名贡献股票占全部正贡献的比例
+```
+
+实验动作：
+
+```text
+backtest_positions.csv 增加 gross_contribution、cost_contribution、net_contribution、excess_contribution
+新增 contribution_by_symbol.csv
+新增 contribution_by_sector.csv
+新增 contribution_by_industry.csv
+新增 exposure_by_sector.csv
+新增 exposure_by_industry.csv
+新增 contribution_summary.yaml
+report.md 新增持仓贡献与行业暴露章节
+新增 Position Contribution And Exposure Review 学习文档
+```
+
+评价指标：
+
+```text
+正贡献最大的股票
+负贡献最大的股票
+正贡献最大的 sector / industry
+负贡献最大的 sector / industry
+前 5 大正贡献股票占全部正贡献比例
+sector 平均暴露和最大暴露
+industry 平均暴露和最大暴露
+```
+
+结果解读：
+
+```text
+前 5 大正贡献股票占全部正贡献比例：30.95%
+正贡献最大股票：ASST、IBRX、CAR、IOVA、OPEN
+负贡献最大股票：IQ、VFS、UPST、FTRE、IRTC
+正贡献最大 sector：Technology、Health Care、Basic Materials
+负贡献最大 sector：Finance、Miscellaneous、Consumer Staples
+平均 sector 暴露最高：Health Care 32.85%、Technology 27.03%、Consumer Discretionary 17.49%
+```
+
+遗留问题：
+
+```text
+贡献按单期简单相加，不是 Brinson 级别的专业归因
+成本按持仓数平均分摊，未区分买入/卖出/换手来源
+行业分类仍来自当前 Nasdaq snapshot，不是历史 PIT 行业分类
+尚未按行业中性组合验证改进效果
+```
+
+下一阶段准备：
+
+进入行业中性 TopK / 行业内排名实验。当前策略平均暴露偏向 Health Care 和 Technology，且超额收益为负，下一步应测试降低行业暴露后是否改善相对基准表现。
+
+产出文件：
+
+```text
+analysis/nasdaq_top500_score/backtest.py
+analysis/nasdaq_top500_score/run_qlib_alpha158_lightgbm.py
+analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_lgbm_10y_frozen_2023_top500_5d_pit_safe.yaml
+tests/analysis/test_topk_backtest.py
+learning/04-strategy-backtest/Position Contribution And Exposure Review.md
+learning/00-start-here/Qlib Commands.md
+learning/99-logs/Qlib Learning Log.md
+learning/99-logs/Stage Completion Records.md
+```
+
 ## 2026-05-18 第 5.3 条：基准与超额收益复盘
 
 目标：
