@@ -2381,3 +2381,134 @@ learning/00-start-here/Qlib Commands.md
 learning/99-logs/Qlib Learning Log.md
 learning/99-logs/Stage Completion Records.md
 ```
+
+## 2026-05-19 阶段 5.7C：重点行业错误复盘
+
+目标：
+
+解释模型在 `Technology`、`Health Care`、`Consumer Discretionary` 三个行业里为什么排对或排错。
+
+为什么要做：
+
+行业内选股复盘告诉我们哪些 sector 的 Rank IC 和 Top-Bottom spread 偏强或偏弱，但还没有解释错误来自哪里。5.7C 把行业内样本拆成高分赢家、高分输家、低分赢家和低分输家，观察模型喜欢什么、漏掉什么。
+
+输入数据：
+
+```text
+test_predictions.csv
+fundamental_features.parquet
+universe.csv
+history_buckets.csv
+qlib_source_csv/
+backtest_positions.csv
+```
+
+核心概念：
+
+```text
+high_score_winners：模型高分，未来 5 日收益也靠前
+high_score_losers：模型高分，但未来 5 日收益靠后
+low_score_winners：模型低分，但未来 5 日收益靠前
+low_score_losers：模型低分，未来 5 日收益也靠后
+```
+
+实验动作：
+
+```text
+新增 sector_error_review 配置
+新增 sector_error_review.py 复盘模块
+只分析 Technology、Health Care、Consumer Discretionary
+沿用信号日后 1 个交易日入场、持有 5 个交易日收益口径
+合并 EDGAR 财报估值、历史长度、市值、ADR、动量、波动率和流动性特征
+生成错误样本、特征差异和 YAML 摘要
+```
+
+评价指标：
+
+```text
+行业内 Rank IC
+Top-Bottom spread
+高分输家率
+低分赢家率
+财报覆盖率
+高估值、短历史、低流动性、ADR、亏损、近期披露集中度
+```
+
+结果解读：
+
+```text
+Technology：
+  诊断 model_weak
+  Rank IC -0.0214
+  Top-Bottom spread -0.5044%
+  高分输家率 52.63%
+  低分赢家率 50.93%
+  高分输家中短历史股票占比 91.61%
+  高分输家中亏损公司占比 52.82%
+
+Health Care：
+  诊断 mixed_or_noisy
+  Rank IC 0.0191
+  Top-Bottom spread 0.5627%
+  高分输家率 49.83%
+  低分赢家率 46.68%
+  高分输家中高估值占比 62.98%
+  高分输家中亏损公司占比 80.81%
+
+Consumer Discretionary：
+  诊断 model_weak
+  Rank IC -0.0230
+  Top-Bottom spread -0.2560%
+  高分输家率 51.97%
+  低分赢家率 52.99%
+  高分输家中短历史股票占比 84.38%
+  高分输家中亏损公司占比 52.93%
+```
+
+当前判断：
+
+```text
+Technology 和 Consumer Discretionary 的行业内排序偏弱，需要优先排查特征和标签。
+Health Care 有一点正向迹象，但事件驱动噪声很大，不能只靠结构化财报和价格特征。
+三个行业共同问题是：短历史股票在高分输家中占比很高。
+模型容易漏掉更大市值、更高流动性、近期动量更强的低分赢家。
+```
+
+额外发现：
+
+```text
+本次完整运行重新训练了一次 LightGBM，模型分数和 5.7A/B 记录时略有差异。
+后续必须固定随机种子或复用缓存 test_predictions.csv，否则跨阶段比较会混入重训波动。
+```
+
+遗留问题：
+
+```text
+sector / industry 仍不是历史 PIT 分类
+错误解释只用特征均值差异，没有 SHAP
+Health Care 缺少临床试验、审批和融资等事件数据
+Technology 和 Consumer Discretionary 还没有行业内 size / liquidity / momentum 相对特征
+短历史股票是否应该继续保留 1 个名额仍需单独评估
+```
+
+下一阶段准备：
+
+```text
+固定训练随机性或缓存 test_predictions.csv
+增加 size / liquidity / momentum 的行业内相对特征
+对 Health Care 设计事件数据接入计划
+考虑 Technology / Consumer Discretionary 的 sector-specific 模型或过滤规则
+```
+
+产出文件：
+
+```text
+analysis/nasdaq_top500_score/sector_error_review.py
+analysis/nasdaq_top500_score/run_qlib_alpha158_lightgbm.py
+analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_lgbm_10y_frozen_2023_top500_5d_pit_safe.yaml
+tests/analysis/test_sector_error_review.py
+learning/06-portfolio-risk/Sector Specific Error Review.md
+learning/00-start-here/Qlib Commands.md
+learning/99-logs/Qlib Learning Log.md
+learning/99-logs/Stage Completion Records.md
+```

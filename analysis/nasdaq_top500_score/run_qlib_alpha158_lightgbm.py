@@ -24,6 +24,7 @@ try:
     from data_sources import DataSourceUnavailable, create_data_source
     from fundamentals import build_fundamental_features
     from industry import build_industry_feature_frame
+    from sector_error_review import run_sector_error_review
     from selection import apply_bucket_ranking, apply_liquidity_filter, build_history_buckets
     from within_sector import run_within_sector_review
 except ImportError:  # pragma: no cover - supports importing this script as a module in tests.
@@ -31,6 +32,7 @@ except ImportError:  # pragma: no cover - supports importing this script as a mo
     from analysis.nasdaq_top500_score.data_sources import DataSourceUnavailable, create_data_source
     from analysis.nasdaq_top500_score.fundamentals import build_fundamental_features
     from analysis.nasdaq_top500_score.industry import build_industry_feature_frame
+    from analysis.nasdaq_top500_score.sector_error_review import run_sector_error_review
     from analysis.nasdaq_top500_score.selection import apply_bucket_ranking, apply_liquidity_filter, build_history_buckets
     from analysis.nasdaq_top500_score.within_sector import run_within_sector_review
 
@@ -151,6 +153,7 @@ def validate_config(config: dict[str, Any]) -> None:
     validate_attribution(config)
     validate_strategy_comparison(config)
     validate_within_sector_review(config)
+    validate_sector_error_review(config)
 
 
 def validate_universe_selection(config: dict[str, Any]) -> None:
@@ -317,6 +320,25 @@ def validate_within_sector_review(config: dict[str, Any]) -> None:
         raise ValueError("within_sector_review.group_levels can only include sector and industry")
 
 
+def validate_sector_error_review(config: dict[str, Any]) -> None:
+    review = config.get("sector_error_review", {})
+    if not review or not review.get("enabled", False):
+        return
+    if not config.get("backtest", {}).get("enabled", False):
+        raise ValueError("enabled sector_error_review requires backtest.enabled: true")
+    target_sectors = review.get("target_sectors", [])
+    if not target_sectors:
+        raise ValueError("enabled sector_error_review requires target_sectors")
+    if any(not str(sector).strip() for sector in target_sectors):
+        raise ValueError("sector_error_review.target_sectors cannot include empty values")
+    if int(review.get("quantiles", 5)) < 2:
+        raise ValueError("sector_error_review.quantiles must be at least 2")
+    if int(review.get("min_group_size", 10)) <= 1:
+        raise ValueError("sector_error_review.min_group_size must be greater than 1")
+    if int(review.get("min_summary_periods", 20)) <= 0:
+        raise ValueError("sector_error_review.min_summary_periods must be positive")
+
+
 def date_value(value: Any) -> pd.Timestamp:
     if isinstance(value, str) and value == "latest":
         return pd.Timestamp.today().normalize()
@@ -388,6 +410,10 @@ def build_paths(config: dict[str, Any]) -> dict[str, Path]:
         "within_industry_summary": output_dir / "within_industry_summary.csv",
         "within_sector_quantile_returns": output_dir / "within_sector_quantile_returns.csv",
         "within_sector_selection_summary": output_dir / "within_sector_selection_summary.yaml",
+        "sector_error_review_summary_csv": output_dir / "sector_error_review_summary.csv",
+        "sector_error_examples_csv": output_dir / "sector_error_examples.csv",
+        "sector_error_feature_differences_csv": output_dir / "sector_error_feature_differences.csv",
+        "sector_error_review_summary_yaml": output_dir / "sector_error_review_summary.yaml",
         "report_md": output_dir / "report.md",
         "resolved_config": output_dir / "resolved_config.yaml",
     }
@@ -596,6 +622,7 @@ def train_and_predict(
     backtest_result = run_topk_backtest(pred_frame, universe, config, paths)
     strategy_comparison = run_strategy_comparison(pred_frame, universe, config, paths)
     within_sector_result = run_within_sector_review(pred_frame, universe, config, paths)
+    sector_error_result = run_sector_error_review(pred_frame, universe, config, paths)
 
     meta = {
         "segments": segments,
@@ -630,6 +657,7 @@ def train_and_predict(
         "backtest_summary": backtest_result.summary,
         "strategy_comparison": strategy_comparison,
         "within_sector_review": within_sector_result.summary,
+        "sector_error_review": sector_error_result.yaml_summary,
     }
     return top_predictions, meta
 
@@ -1099,6 +1127,42 @@ def within_sector_report_lines(summary: dict[str, Any]) -> list[str]:
     return lines
 
 
+def sector_error_review_report_lines(summary: dict[str, Any]) -> list[str]:
+    if not summary.get("enabled", False):
+        return ["- 未启用。"]
+    sectors = summary.get("sectors", [])
+    if not sectors:
+        return ["- 已启用，但没有生成重点行业错误复盘结果。"]
+
+    lines = [
+        "| Sector | 诊断 | Rank IC | Top-Bottom Spread | 高分输家率 | 低分赢家率 | 财报覆盖率 |",
+        "|---|---|---:|---:|---:|---:|---:|",
+    ]
+    for row in sectors:
+        lines.append(
+            "| {sector} | {diagnosis} | {rank_ic} | {spread} | {high_loser} | {low_winner} | {coverage} |".format(
+                sector=row.get("sector", "N/A"),
+                diagnosis=row.get("diagnosis", "N/A"),
+                rank_ic=fmt_number(row.get("rank_ic_mean"), 4),
+                spread=fmt_pct(row.get("top_bottom_spread_mean")),
+                high_loser=fmt_pct(row.get("high_score_loser_rate")),
+                low_winner=fmt_pct(row.get("low_score_winner_rate")),
+                coverage=fmt_pct(row.get("fundamental_coverage_mean")),
+            )
+        )
+    lines.extend(
+        [
+            "",
+            "错误类别：`high_score_losers` 是模型高分但未来收益落后的假阳性；`low_score_winners` 是模型低分但未来收益靠前的漏选赢家。",
+            "诊断口径：`model_effective` 表示该 sector 的行业内 Rank IC 和 Top-Bottom spread 同时为正；`model_weak` 表示两者同时偏弱或为负；其他为混合或噪声较大。",
+        ]
+    )
+    differences = summary.get("largest_feature_differences", [])
+    if differences:
+        lines.extend(["", "差异最大的特征片段：", *format_yaml_block(differences[:8])])
+    return lines
+
+
 def write_report(
     predictions: pd.DataFrame,
     meta: dict[str, Any],
@@ -1138,6 +1202,7 @@ def write_report(
     attribution_summary = backtest_summary.get("attribution", {})
     strategy_comparison_summary = meta.get("strategy_comparison", {})
     within_sector_summary = meta.get("within_sector_review", {})
+    sector_error_summary = meta.get("sector_error_review", {})
     lines = [
         f"# {config['experiment']['name']} Report",
         "",
@@ -1358,6 +1423,10 @@ def write_report(
             "",
             *within_sector_report_lines(within_sector_summary),
             "",
+            "## 重点行业错误复盘",
+            "",
+            *sector_error_review_report_lines(sector_error_summary),
+            "",
             "## 持仓贡献与行业暴露",
             "",
             *(
@@ -1484,6 +1553,10 @@ def write_report(
             "- `within_industry_summary.csv`：按 industry 聚合的补充复盘。",
             "- `within_sector_quantile_returns.csv`：sector 内 score 五分位组合平均未来收益。",
             "- `within_sector_selection_summary.yaml`：行业内选股复盘摘要。",
+            "- `sector_error_review_summary.csv`：Technology、Health Care、Consumer Discretionary 的错误复盘摘要。",
+            "- `sector_error_examples.csv`：高分赢家、高分输家、低分赢家、低分输家的样本明细。",
+            "- `sector_error_feature_differences.csv`：错误类别之间的特征均值差异。",
+            "- `sector_error_review_summary.yaml`：重点行业错误复盘摘要。",
             "- `report.md`：本报告。",
             "- `resolved_config.yaml`：本次实际使用配置，复盘时优先看它。",
             "- `qlib_source_csv/`：逐股票原始日线 CSV。",

@@ -73,6 +73,7 @@
 - [Industry Exposure Strategy Comparison](<06-portfolio-risk/Industry Exposure Strategy Comparison.md>)
 - [Industry Constraint Sensitivity](<06-portfolio-risk/Industry Constraint Sensitivity.md>)
 - [Within Sector Stock Selection Review](<06-portfolio-risk/Within Sector Stock Selection Review.md>)
+- [Sector Specific Error Review](<06-portfolio-risk/Sector Specific Error Review.md>)
 - [Portfolio Risk Control](<06-portfolio-risk/Portfolio Risk Control.md>)
 
 ### 90 Case Studies

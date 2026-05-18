@@ -159,6 +159,10 @@ within_sector_summary.csv
 within_industry_summary.csv
 within_sector_quantile_returns.csv
 within_sector_selection_summary.yaml
+sector_error_review_summary.csv
+sector_error_examples.csv
+sector_error_feature_differences.csv
+sector_error_review_summary.yaml
 report.md
 ```
 

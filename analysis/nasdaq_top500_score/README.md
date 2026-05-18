@@ -333,6 +333,10 @@ EDGAR 配置会额外生成 `fundamental_features.parquet`、`fundamental_failur
 
 启用行业内选股复盘的配置会额外生成 `within_sector_daily_metrics.csv`、`within_sector_summary.csv`、`within_industry_summary.csv`、`within_sector_quantile_returns.csv` 和 `within_sector_selection_summary.yaml`。
 
+启用重点行业错误复盘的配置会额外生成 `sector_error_review_summary.csv`、`sector_error_examples.csv`、`sector_error_feature_differences.csv` 和 `sector_error_review_summary.yaml`。
+
+最近一次重点行业错误复盘结论：`Technology` 和 `Consumer Discretionary` 的行业内排序偏弱；`Health Care` 有正向迹象但噪声较大。三个行业的高分输家都大量集中在短历史股票，模型也容易漏掉更大市值、更高流动性、近期动量更强的低分赢家。
+
 `resolved_config.yaml` 是复盘入口：它记录这次实验实际使用的股票池、标签、特征、切分和模型参数。
 
 ## 当前学习口径

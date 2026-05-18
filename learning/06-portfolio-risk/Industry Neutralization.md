@@ -25,6 +25,8 @@
 
 行业内部的选股能力复盘见 [[Within Sector Stock Selection Review]]。它回答的是：在同一个 sector 内，模型能不能把未来收益更好的股票排到前面。
 
+重点行业错误复盘见 [[Sector Specific Error Review]]。它进一步回答：在 Technology、Health Care、Consumer Discretionary 里，模型排错的股票有哪些共同特征。
+
 ## 当前 Nasdaq 问题
 
 Nasdaq 总市值前 500 包含：
@@ -49,4 +51,4 @@ REIT
 
 ## 下一阶段准备
 
-阅读 [[Industry Features And Relative Ranking]]、[[Industry Exposure Strategy Comparison]]、[[Industry Constraint Sensitivity]]、[[Within Sector Stock Selection Review]] 和 [[Portfolio Risk Control]]，下一步把行业相对信号扩展到更稳定的行业权重规则。
+阅读 [[Industry Features And Relative Ranking]]、[[Industry Exposure Strategy Comparison]]、[[Industry Constraint Sensitivity]]、[[Within Sector Stock Selection Review]]、[[Sector Specific Error Review]] 和 [[Portfolio Risk Control]]，下一步把行业相对信号扩展到更稳定的行业权重规则。

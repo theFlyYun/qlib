@@ -316,6 +316,20 @@
 
 详细笔记：[[Industry Constraint Sensitivity]]
 
+## 2026-05-19 重点行业错误复盘
+
+- 学习主题：解释模型在 `Technology`、`Health Care`、`Consumer Discretionary` 里为什么排对或排错。
+- 当前动作：新增 `sector_error_review`，把每个目标 sector 内的样本分成 `high_score_winners`、`high_score_losers`、`low_score_winners`、`low_score_losers` 四类，并对估值、财务、动量、流动性、市值、历史长度做差异对比。
+- 实验口径：as-of 2023-12-31 近似冻结 Nasdaq Top500；测试期 `2024-01-02` 到 `2026-05-15`；信号日后 1 个交易日入场，持有 5 个交易日；沿用 PIT 历史长度和流动性过滤。
+- 重要发现：本次 5.7C 完整运行重新训练了一次 LightGBM，模型分数和 5.7A/B 记录时略有差异。后续需要固定随机种子或复用缓存的 `test_predictions.csv`，否则跨阶段比较会混入重训波动。
+- Technology：Rank IC `-0.0214`，Top-Bottom spread `-0.5044%`，高分输家率 `52.63%`，低分赢家率 `50.93%`。模型漏掉了一批更大市值、更高流动性、60 日动量更强的赢家。
+- Health Care：Rank IC `0.0191`，Top-Bottom spread `0.5627%`，高分输家率 `49.83%`，低分赢家率 `46.68%`。排序不是明显失效，但高分输家大量集中在高估值、亏损、短历史生物医药股。
+- Consumer Discretionary：Rank IC `-0.0230`，Top-Bottom spread `-0.2560%`，高分输家率 `51.97%`，低分赢家率 `52.99%`。模型同样漏掉更大、更高流动性、估值更低的赢家。
+- 当前判断：Technology 和 Consumer Discretionary 需要优先改特征或做行业专属复盘；Health Care 需要补事件数据或更严格过滤高估值亏损股；三个行业都显示短历史股票在高分输家中占比过高。
+- 下一步：先固定训练随机性或缓存预测分数，再加入 size / liquidity / momentum 的行业内相对特征，并考虑 Health Care 的事件型数据。
+
+详细笔记：[[Sector Specific Error Review]]
+
 ## 复盘原则
 
 - 先写假设，再看结果。
