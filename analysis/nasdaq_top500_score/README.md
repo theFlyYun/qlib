@@ -196,12 +196,24 @@ strategy_comparison/sector_momentum_tilt_top10/
 最近一次对照结果：
 
 ```text
-unconstrained_top10：累计收益 29.72%，年化收益 11.76%，超额累计收益 -27.44%
-sector_capped_top10：累计收益 57.38%，年化收益 21.37%，超额累计收益 -11.97%
-sector_momentum_tilt_top10：累计收益 57.85%，年化收益 21.53%，超额累计收益 -11.71%
+unconstrained_top10：累计收益 24.77%，年化收益 9.91%，超额累计收益 -30.21%
+sector_capped_top10：累计收益 76.79%，年化收益 27.55%，超额累计收益 -1.11%
+sector_momentum_tilt_top10：累计收益 67.91%，年化收益 24.78%，超额累计收益 -6.08%
 ```
 
-当前判断：适度限制行业集中度后，组合表现更稳；行业动量增强略好于行业约束，但改善幅度很小，不能单独证明行业趋势模块已经稳定有效。
+当前判断：适度限制行业集中度后，组合表现更稳；行业动量增强这轮弱于普通行业约束，说明简单 60 日行业动量还不能证明稳定有效。
+
+该配置还会生成行业内选股复盘，检查模型在同一个 sector 内能否把未来收益更好的股票排到前面：
+
+```text
+within_sector_daily_metrics.csv
+within_sector_summary.csv
+within_industry_summary.csv
+within_sector_quantile_returns.csv
+within_sector_selection_summary.yaml
+```
+
+最近一次行业内复盘结论：Telecommunications、Health Care、Industrials 有一些正向排序迹象；Technology、Consumer Discretionary、Finance 的行业内排序偏弱。
 
 回测口径：
 
@@ -314,6 +326,8 @@ EDGAR 配置会额外生成 `fundamental_features.parquet`、`fundamental_failur
 启用贡献归因的配置会额外生成 `contribution_by_symbol.csv`、`contribution_by_sector.csv`、`contribution_by_industry.csv`、`exposure_by_sector.csv`、`exposure_by_industry.csv` 和 `contribution_summary.yaml`。
 
 启用策略对照的配置会额外生成 `strategy_comparison.csv`、`strategy_comparison_summary.yaml` 和 `strategy_comparison/` 下每个 variant 的独立回测与归因文件。
+
+启用行业内选股复盘的配置会额外生成 `within_sector_daily_metrics.csv`、`within_sector_summary.csv`、`within_industry_summary.csv`、`within_sector_quantile_returns.csv` 和 `within_sector_selection_summary.yaml`。
 
 `resolved_config.yaml` 是复盘入口：它记录这次实验实际使用的股票池、标签、特征、切分和模型参数。
 

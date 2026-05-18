@@ -150,6 +150,11 @@ contribution_summary.yaml
 strategy_comparison.csv
 strategy_comparison_summary.yaml
 strategy_comparison/
+within_sector_daily_metrics.csv
+within_sector_summary.csv
+within_industry_summary.csv
+within_sector_quantile_returns.csv
+within_sector_selection_summary.yaml
 report.md
 ```
 

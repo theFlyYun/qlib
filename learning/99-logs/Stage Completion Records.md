@@ -2058,39 +2058,39 @@ Sector HHI
 
 ```text
 unconstrained_top10：
-  累计收益 29.72%
-  年化收益 11.76%
-  最大回撤 -31.36%
-  超额累计收益 -27.44%
-  年化 Alpha -9.83%
-  最大平均 sector 暴露 Health Care 35.13%
-  Sector HHI 0.307
+  累计收益 24.77%
+  年化收益 9.91%
+  最大回撤 -31.47%
+  超额累计收益 -30.21%
+  年化 Alpha -14.17%
+  最大平均 sector 暴露 Health Care 34.55%
+  Sector HHI 0.312
 
 sector_capped_top10：
-  累计收益 57.38%
-  年化收益 21.37%
-  最大回撤 -28.69%
-  超额累计收益 -11.97%
-  年化 Alpha -1.24%
-  最大平均 sector 暴露 Health Care 27.18%
-  Sector HHI 0.227
+  累计收益 76.79%
+  年化收益 27.55%
+  最大回撤 -29.58%
+  超额累计收益 -1.11%
+  年化 Alpha 1.87%
+  最大平均 sector 暴露 Health Care 27.89%
+  Sector HHI 0.231
 
 sector_momentum_tilt_top10：
-  累计收益 57.85%
-  年化收益 21.53%
-  最大回撤 -29.78%
-  超额累计收益 -11.71%
-  年化 Alpha -1.10%
-  最大平均 sector 暴露 Health Care 28.72%
-  Sector HHI 0.239
+  累计收益 67.91%
+  年化收益 24.78%
+  最大回撤 -30.71%
+  超额累计收益 -6.08%
+  年化 Alpha -0.86%
+  最大平均 sector 暴露 Health Care 29.43%
+  Sector HHI 0.244
 ```
 
 当前判断：
 
 ```text
 行业约束明显优于原始不限制 Top10。
-行业增强略优于行业约束，但改善幅度很小。
-三组策略仍未形成明确正 alpha。
+行业增强优于原始不限制 Top10，但弱于普通行业约束。
+行业约束这轮 alpha 略微转正，但幅度仍小。
 当前模型更适合保留行业风险控制，再继续验证行业内选股能力。
 ```
 
@@ -2122,6 +2122,125 @@ analysis/nasdaq_top500_score/selection/history_buckets.py
 analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_lgbm_10y_frozen_2023_top500_5d_pit_safe.yaml
 tests/analysis/test_topk_backtest.py
 tests/analysis/test_stock_pool_selection.py
+learning/06-portfolio-risk/Industry Exposure Strategy Comparison.md
+learning/06-portfolio-risk/Industry Neutralization.md
+learning/00-start-here/Qlib Commands.md
+learning/99-logs/Qlib Learning Log.md
+learning/99-logs/Stage Completion Records.md
+```
+
+## 2026-05-18 阶段 5.6：行业内选股复盘
+
+目标：
+
+验证模型在同一个 sector 内部，是否能把未来收益更好的股票排到更前面。
+
+为什么要做：
+
+行业暴露对照已经说明“限制行业集中度”有帮助，但它还不能说明模型有行业内选股能力。行业内复盘把同一个 sector 的股票放在一起比较，排除行业之间涨跌差异的影响。
+
+输入数据：
+
+```text
+Nasdaq public as-of 2023-12-31 近似冻结 Top500
+测试期 test_predictions.csv
+universe.csv 的 sector / industry
+qlib_source_csv 的日线行情
+当前 backtest 的 PIT 历史长度和流动性过滤规则
+未来 5 日实际收益
+```
+
+核心概念：
+
+```text
+行业内 IC：同一 sector 内 score 与未来收益的 Pearson 相关
+行业内 Rank IC：同一 sector 内 score 排名与未来收益排名的 Spearman 相关
+Top-Bottom spread：sector 内 score 前 20% 平均收益 - 后 20% 平均收益
+spread_positive_rate：Top-Bottom spread 为正的交易日比例
+```
+
+实验动作：
+
+```text
+新增 within_sector_review 配置
+新增 within_sector.py 复盘模块
+每个信号日按 sector / industry 分组
+沿用信号日后 1 个交易日入场、持有 5 个交易日的收益口径
+sector 内可交易股票少于 10 时不计算 Top/Bottom spread
+生成 daily metrics、sector summary、industry summary、quantile returns 和 YAML 摘要
+```
+
+评价指标：
+
+```text
+sector 覆盖数量
+industry 覆盖数量
+有效交易日数量
+平均可交易股票数
+行业内 IC
+行业内 Rank IC
+Top-Bottom spread
+spread_positive_rate
+```
+
+结果解读：
+
+```text
+sector 数量：12
+industry 数量：93
+低样本 sector 数量：0
+有效信号期数：118
+
+Rank IC 较好：
+  Telecommunications：0.0728，Top-Bottom spread 1.4920%
+  Health Care：0.0215，Top-Bottom spread 0.3350%
+
+Top-Bottom spread 较好：
+  Telecommunications：1.4920%
+  Industrials：0.3859%
+  Health Care：0.3350%
+
+排序较弱：
+  Consumer Discretionary：Rank IC -0.0218，spread -0.3811%
+  Technology：Rank IC -0.0128，spread -0.2904%
+  Finance：Rank IC -0.0224，spread -0.2104%
+```
+
+当前判断：
+
+```text
+模型的行业内选股能力并不均匀。
+Telecommunications、Health Care、Industrials 有一些正向迹象。
+Technology、Consumer Discretionary、Finance 内部排序偏弱。
+行业约束有必要继续保留，但下一步要看是否需要 sector-specific 特征、标签或模型。
+```
+
+遗留问题：
+
+```text
+sector / industry 仍来自当前 Nasdaq public snapshot，不是历史 PIT 分类
+小行业 Rank IC 容易受少数股票影响
+没有专业复权总回报行情和退市股票
+没有按 sector 单独训练模型
+没有比较不同行业的最佳标签周期
+```
+
+下一阶段准备：
+
+```text
+做行业参数敏感性：max_sector=2/3/4
+对 Technology、Health Care、Consumer Discretionary 做错误样本复盘
+考虑 sector-specific 模型或 sector-specific TopK
+```
+
+产出文件：
+
+```text
+analysis/nasdaq_top500_score/within_sector.py
+analysis/nasdaq_top500_score/run_qlib_alpha158_lightgbm.py
+analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_lgbm_10y_frozen_2023_top500_5d_pit_safe.yaml
+tests/analysis/test_within_sector_review.py
+learning/06-portfolio-risk/Within Sector Stock Selection Review.md
 learning/06-portfolio-risk/Industry Exposure Strategy Comparison.md
 learning/06-portfolio-risk/Industry Neutralization.md
 learning/00-start-here/Qlib Commands.md

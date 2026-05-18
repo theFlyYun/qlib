@@ -21,6 +21,8 @@
 
 组合层面已经开始做行业暴露对照，见 [[Industry Exposure Strategy Comparison]]。这一步不禁止买强势行业，而是把原始 TopK、行业约束 TopK 和行业增强 TopK 放在同一批模型分数下比较。
 
+行业内部的选股能力复盘见 [[Within Sector Stock Selection Review]]。它回答的是：在同一个 sector 内，模型能不能把未来收益更好的股票排到前面。
+
 ## 当前 Nasdaq 问题
 
 Nasdaq 总市值前 500 包含：
@@ -45,4 +47,4 @@ REIT
 
 ## 下一阶段准备
 
-阅读 [[Industry Features And Relative Ranking]]、[[Industry Exposure Strategy Comparison]] 和 [[Portfolio Risk Control]]，下一步把行业相对信号扩展到更稳定的行业权重规则。
+阅读 [[Industry Features And Relative Ranking]]、[[Industry Exposure Strategy Comparison]]、[[Within Sector Stock Selection Review]] 和 [[Portfolio Risk Control]]，下一步把行业相对信号扩展到更稳定的行业权重规则。

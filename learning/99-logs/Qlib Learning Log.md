@@ -279,13 +279,27 @@
 - 学习主题：拆开验证“行业押注”和“个股选择”，判断行业暴露是否应该被限制或显式利用。
 - 当前动作：新增 `strategy_comparison`，同一批测试期模型预测分数只改变 Top10 选股规则，分别运行 `unconstrained_top10`、`sector_capped_top10` 和 `sector_momentum_tilt_top10`。
 - 实验口径：as-of 2023-12-31 近似冻结 Nasdaq Top500；测试期 `2024-01-02` 到 `2026-05-15`；未来 5 日收益标签；每 5 个交易日调仓；单边成本 10 bps；基准为 `NASDAQCOM`。
-- 原始 Top10：累计收益 `29.72%`，年化收益 `11.76%`，最大回撤 `-31.36%`，超额累计收益 `-27.44%`，年化 alpha `-9.83%`。
-- 行业约束 Top10：累计收益 `57.38%`，年化收益 `21.37%`，最大回撤 `-28.69%`，超额累计收益 `-11.97%`，年化 alpha `-1.24%`。
-- 行业增强 Top10：累计收益 `57.85%`，年化收益 `21.53%`，最大回撤 `-29.78%`，超额累计收益 `-11.71%`，年化 alpha `-1.10%`。
-- 当前判断：适度限制行业集中度后表现更稳，说明原始 Top10 的自由行业暴露没有带来更好结果；行业动量增强略优于行业约束，但差距很小，还不能证明行业趋势模块稳定有效。
+- 原始 Top10：累计收益 `24.77%`，年化收益 `9.91%`，最大回撤 `-31.47%`，超额累计收益 `-30.21%`，年化 alpha `-14.17%`。
+- 行业约束 Top10：累计收益 `76.79%`，年化收益 `27.55%`，最大回撤 `-29.58%`，超额累计收益 `-1.11%`，年化 alpha `1.87%`。
+- 行业增强 Top10：累计收益 `67.91%`，年化收益 `24.78%`，最大回撤 `-30.71%`，超额累计收益 `-6.08%`，年化 alpha `-0.86%`。
+- 当前判断：适度限制行业集中度后表现更稳，说明原始 Top10 的自由行业暴露没有带来更好结果；行业动量增强弱于普通行业约束，简单 60 日行业动量还不能证明稳定有效。
 - 下一步：做行业内选股复盘，按 sector 分别看模型 score 和未来收益关系；再比较 `max_sector=2/3/4`、行业等权和行业动量权重。
 
 详细笔记：[[Industry Exposure Strategy Comparison]]
+
+## 2026-05-18 行业内选股复盘
+
+- 学习主题：验证模型在同一个 sector 内部是否有选股排序能力。
+- 当前动作：新增 `within_sector_review`，复用测试期 `test_predictions.csv`、当前 PIT 历史长度和流动性过滤规则，按 sector / industry 计算行业内 IC、Rank IC 和 Top-Bottom spread。
+- 实验口径：信号日后 1 个交易日入场，持有 5 个交易日；sector 内可交易股票少于 10 时不计算 Top/Bottom spread。
+- 覆盖结果：sector 数量 `12`，industry 数量 `93`，低样本 sector 数量 `0`，测试期有效信号期数 `118`。
+- Rank IC 较好 sector：`Telecommunications 0.0728`、`Health Care 0.0215`；`Miscellaneous`、`Energy`、`Basic Materials` 虽然 Rank IC 较高，但平均可交易股票数少于 10，不能只看 Rank IC 下结论。
+- Top-Bottom spread 较好 sector：`Telecommunications 1.4920%`、`Industrials 0.3859%`、`Health Care 0.3350%`。
+- 排序较弱 sector：`Consumer Discretionary`、`Technology`、`Finance` 的 Rank IC 和 Top-Bottom spread 均偏弱或为负。
+- 当前判断：行业约束仍有必要；当前模型在部分行业有行业内排序迹象，但并不稳定。Technology 样本多但行业内排序为负，是后续重点排查对象。
+- 下一步：做 `max_sector=2/3/4` 参数敏感性，并对 Technology、Health Care、Consumer Discretionary 做 sector-specific 错误复盘。
+
+详细笔记：[[Within Sector Stock Selection Review]]
 
 ## 复盘原则
 

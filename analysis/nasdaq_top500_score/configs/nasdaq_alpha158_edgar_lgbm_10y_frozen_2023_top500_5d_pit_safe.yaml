@@ -178,3 +178,12 @@ strategy_comparison:
           top_sector_count: 3
           extra_max_sector: 1
           max_sector_cap: 4
+
+within_sector_review:
+  enabled: true
+  group_levels:
+    - sector
+    - industry
+  quantiles: 5
+  min_group_size: 10
+  min_summary_periods: 20
