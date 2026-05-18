@@ -184,11 +184,100 @@ def select_for_signal_date(
 
     ranking_config = config.get("bucket_ranking", {})
     if ranking_config.get("enabled", False):
-        return select_bucketed_top(day, ranking_config, top_n, config.get("industry_constraints", {})), filter_stats
+        industry_constraints, constraint_stats = resolve_industry_constraints_for_signal(
+            day,
+            signal_ts=signal_date,
+            config=config,
+            market_data=market_data or {},
+        )
+        filter_stats.update(constraint_stats)
+        return select_bucketed_top(day, ranking_config, top_n, industry_constraints), filter_stats
 
     selected = day.head(top_n).copy()
     selected["selected_rank"] = range(1, len(selected) + 1)
     return selected, filter_stats
+
+
+def resolve_industry_constraints_for_signal(
+    day: pd.DataFrame,
+    signal_ts: pd.Timestamp,
+    config: dict[str, Any],
+    market_data: dict[str, pd.DataFrame],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    constraints = dict(config.get("industry_constraints", {}))
+    if not constraints.get("enabled", False):
+        return constraints, {
+            "sector_momentum_tilt_enabled": False,
+            "sector_momentum_tilted_sectors": "",
+        }
+
+    tilt = dict(constraints.get("sector_momentum_tilt", {}))
+    if not tilt.get("enabled", False):
+        return constraints, {
+            "sector_momentum_tilt_enabled": False,
+            "sector_momentum_tilted_sectors": "",
+        }
+
+    lookback_days = int(tilt.get("lookback_days", 60))
+    top_sector_count = int(tilt.get("top_sector_count", 3))
+    base_max_sector = int(tilt.get("base_max_sector", constraints.get("max_sector", 3)))
+    extra_max_sector = int(tilt.get("extra_max_sector", 1))
+    max_sector_cap = int(tilt.get("max_sector_cap", base_max_sector + extra_max_sector))
+    tilted_max_sector = min(max_sector_cap, base_max_sector + extra_max_sector)
+    sector_momentum = compute_sector_momentum(day, market_data, signal_ts, lookback_days)
+    tilted_sectors = sector_momentum.head(top_sector_count)["sector"].tolist() if not sector_momentum.empty else []
+
+    constraints["max_sector"] = base_max_sector
+    constraints["max_sector_by_value"] = {sector: tilted_max_sector for sector in tilted_sectors}
+    return constraints, {
+        "sector_momentum_tilt_enabled": True,
+        "sector_momentum_tilted_sectors": ",".join(tilted_sectors),
+    }
+
+
+def compute_sector_momentum(
+    day: pd.DataFrame,
+    market_data: dict[str, pd.DataFrame],
+    signal_ts: pd.Timestamp,
+    lookback_days: int,
+) -> pd.DataFrame:
+    if day.empty or "sector" not in day.columns or lookback_days <= 0:
+        return pd.DataFrame(columns=["sector", "momentum_return", "symbol_count"])
+
+    rows = []
+    for row in day[["symbol", "sector"]].dropna(subset=["symbol"]).to_dict("records"):
+        sector = str(row.get("sector") or "").strip()
+        if not sector:
+            continue
+        symbol = str(row["symbol"]).upper()
+        frame = market_data.get(symbol)
+        if frame is None or frame.empty:
+            continue
+        usable = frame[frame.index <= signal_ts].dropna(subset=["execution_price"])
+        if len(usable) <= lookback_days:
+            continue
+        start_price = usable["execution_price"].iloc[-lookback_days - 1]
+        end_price = usable["execution_price"].iloc[-1]
+        if pd.isna(start_price) or pd.isna(end_price) or float(start_price) <= 0:
+            continue
+        rows.append(
+            {
+                "sector": sector,
+                "momentum_return": float(end_price) / float(start_price) - 1.0,
+                "symbol": symbol,
+            }
+        )
+
+    if not rows:
+        return pd.DataFrame(columns=["sector", "momentum_return", "symbol_count"])
+    frame = pd.DataFrame(rows)
+    return (
+        frame.groupby("sector", dropna=False)
+        .agg(momentum_return=("momentum_return", "mean"), symbol_count=("symbol", "nunique"))
+        .reset_index()
+        .sort_values(["momentum_return", "symbol_count", "sector"], ascending=[False, False, True])
+        .reset_index(drop=True)
+    )
 
 
 def apply_point_in_time_filters(

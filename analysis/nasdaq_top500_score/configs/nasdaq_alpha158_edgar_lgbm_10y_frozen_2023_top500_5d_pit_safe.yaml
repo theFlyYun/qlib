@@ -149,3 +149,32 @@ benchmark:
 attribution:
   enabled: true
   top_n: 10
+
+strategy_comparison:
+  enabled: true
+  variants:
+    - name: unconstrained_top10
+      output_dir_suffix: unconstrained_top10
+      description: 原始 Top10，不限制 sector 或 industry，观察模型自然行业暴露。
+      industry_constraints:
+        enabled: false
+    - name: sector_capped_top10
+      output_dir_suffix: sector_capped_top10
+      description: 行业约束 Top10，限制单 sector 最多 3 只、单 industry 最多 2 只。
+      industry_constraints:
+        enabled: true
+        max_sector: 3
+        max_industry: 2
+    - name: sector_momentum_tilt_top10
+      output_dir_suffix: sector_momentum_tilt_top10
+      description: 行业增强 Top10，信号日前 60 个交易日强势 sector 可多拿 1 个名额。
+      industry_constraints:
+        enabled: true
+        max_sector: 3
+        max_industry: 2
+        sector_momentum_tilt:
+          enabled: true
+          lookback_days: 60
+          top_sector_count: 3
+          extra_max_sector: 1
+          max_sector_cap: 4

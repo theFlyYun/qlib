@@ -285,6 +285,38 @@ def test_bucketed_top10_respects_sector_and_industry_constraints() -> None:
     assert selected["industry"].value_counts().max() <= 2
 
 
+def test_bucketed_top10_allows_tilted_sector_extra_slot() -> None:
+    predictions = pd.DataFrame(
+        [
+            {"symbol": f"T{i}", "score": 100 - i, "history_bucket": "full_10y", "sector": "Technology", "industry": f"Tech {i}"}
+            for i in range(5)
+        ]
+        + [
+            {"symbol": f"H{i}", "score": 90 - i, "history_bucket": "full_10y", "sector": "Health Care", "industry": f"Health {i}"}
+            for i in range(5)
+        ]
+    )
+    ranking_config = {
+        "quotas": {"full_10y": 10, "5_10y": 0, "2_5y": 0, "lt_2y": 0},
+        "refill_order": ["full_10y", "5_10y", "2_5y", "lt_2y"],
+    }
+
+    selected = select_bucketed_top(
+        predictions,
+        ranking_config,
+        10,
+        {
+            "enabled": True,
+            "max_sector": 3,
+            "max_sector_by_value": {"Technology": 4},
+            "max_industry": 1,
+        },
+    )
+
+    assert selected["sector"].value_counts().to_dict()["Technology"] == 4
+    assert selected["sector"].value_counts().to_dict()["Health Care"] == 3
+
+
 def test_apply_bucket_ranking_writes_bucket_outputs(tmp_path: Path) -> None:
     predictions = pd.DataFrame(
         [

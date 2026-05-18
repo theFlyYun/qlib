@@ -147,6 +147,9 @@ contribution_by_industry.csv
 exposure_by_sector.csv
 exposure_by_industry.csv
 contribution_summary.yaml
+strategy_comparison.csv
+strategy_comparison_summary.yaml
+strategy_comparison/
 report.md
 ```
 

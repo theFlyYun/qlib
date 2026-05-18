@@ -10,6 +10,7 @@ import argparse
 import math
 import shutil
 import sys
+from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -146,6 +147,7 @@ def validate_config(config: dict[str, Any]) -> None:
     validate_backtest(config)
     validate_benchmark(config)
     validate_attribution(config)
+    validate_strategy_comparison(config)
 
 
 def validate_universe_selection(config: dict[str, Any]) -> None:
@@ -266,6 +268,35 @@ def validate_attribution(config: dict[str, Any]) -> None:
         raise ValueError("attribution.top_n must be positive")
 
 
+def validate_strategy_comparison(config: dict[str, Any]) -> None:
+    comparison = config.get("strategy_comparison", {})
+    if not comparison or not comparison.get("enabled", False):
+        return
+    if not config.get("backtest", {}).get("enabled", False):
+        raise ValueError("enabled strategy_comparison requires backtest.enabled: true")
+    variants = comparison.get("variants", [])
+    if not variants:
+        raise ValueError("enabled strategy_comparison requires variants")
+    names = [str(variant.get("name", "")).strip() for variant in variants]
+    if any(not name for name in names):
+        raise ValueError("strategy_comparison variants require non-empty name")
+    if len(set(names)) != len(names):
+        raise ValueError("strategy_comparison variant names must be unique")
+    for variant in variants:
+        constraints = variant.get("industry_constraints", {})
+        if constraints.get("enabled", False):
+            for key in ["max_sector", "max_industry"]:
+                if key not in constraints or int(constraints[key]) <= 0:
+                    raise ValueError(f"enabled strategy_comparison industry_constraints requires positive {key}")
+            tilt = constraints.get("sector_momentum_tilt", {})
+            if tilt.get("enabled", False):
+                for key in ["lookback_days", "top_sector_count"]:
+                    if int(tilt.get(key, 0)) <= 0:
+                        raise ValueError(f"sector_momentum_tilt.{key} must be positive")
+                if int(tilt.get("extra_max_sector", 1)) < 0:
+                    raise ValueError("sector_momentum_tilt.extra_max_sector must be non-negative")
+
+
 def date_value(value: Any) -> pd.Timestamp:
     if isinstance(value, str) and value == "latest":
         return pd.Timestamp.today().normalize()
@@ -329,6 +360,9 @@ def build_paths(config: dict[str, Any]) -> dict[str, Path]:
         "exposure_by_sector": output_dir / "exposure_by_sector.csv",
         "exposure_by_industry": output_dir / "exposure_by_industry.csv",
         "contribution_summary": output_dir / "contribution_summary.yaml",
+        "strategy_comparison_dir": output_dir / "strategy_comparison",
+        "strategy_comparison_csv": output_dir / "strategy_comparison.csv",
+        "strategy_comparison_summary": output_dir / "strategy_comparison_summary.yaml",
         "report_md": output_dir / "report.md",
         "resolved_config": output_dir / "resolved_config.yaml",
     }
@@ -535,6 +569,7 @@ def train_and_predict(
         ic_count = int(ic.notna().sum())
 
     backtest_result = run_topk_backtest(pred_frame, universe, config, paths)
+    strategy_comparison = run_strategy_comparison(pred_frame, universe, config, paths)
 
     meta = {
         "segments": segments,
@@ -567,8 +602,149 @@ def train_and_predict(
         else {},
         "backtest_enabled": bool(backtest_result.summary.get("enabled", False)),
         "backtest_summary": backtest_result.summary,
+        "strategy_comparison": strategy_comparison,
     }
     return top_predictions, meta
+
+
+def run_strategy_comparison(
+    predictions: pd.DataFrame,
+    universe: pd.DataFrame,
+    config: dict[str, Any],
+    paths: dict[str, Path],
+) -> dict[str, Any]:
+    comparison = config.get("strategy_comparison", {})
+    if not comparison.get("enabled", False):
+        return {"enabled": False, "rows": []}
+
+    rows = []
+    variant_summaries = []
+    paths["strategy_comparison_dir"].mkdir(parents=True, exist_ok=True)
+    for variant in comparison.get("variants", []):
+        variant_config = build_strategy_variant_config(config, variant)
+        variant_paths = build_strategy_variant_paths(paths, variant)
+        result = run_topk_backtest(predictions, universe, variant_config, variant_paths)
+        row = summarize_strategy_variant(variant, result, variant_paths)
+        rows.append(row)
+        variant_summaries.append(
+            {
+                "name": row["name"],
+                "description": row["description"],
+                "output_dir": row["output_dir"],
+                "summary": result.summary,
+            }
+        )
+
+    frame = pd.DataFrame(rows)
+    frame.to_csv(paths["strategy_comparison_csv"], index=False)
+    summary = {"enabled": True, "rows": rows, "variants": variant_summaries}
+    paths["strategy_comparison_summary"].write_text(
+        yaml.safe_dump(summary, allow_unicode=True, sort_keys=False),
+        encoding="utf-8",
+    )
+    return summary
+
+
+def build_strategy_variant_config(config: dict[str, Any], variant: dict[str, Any]) -> dict[str, Any]:
+    variant_config = deepcopy(config)
+    variant_name = str(variant["name"])
+    if "experiment" in variant_config:
+        base_name = config.get("experiment", {}).get("name", "strategy_comparison")
+        variant_config["experiment"]["name"] = f"{base_name}__{variant_name}"
+    for key in ["bucket_ranking", "backtest", "benchmark", "attribution"]:
+        if key in variant:
+            variant_config[key] = deep_merge_dicts(variant_config.get(key, {}), variant[key])
+    if "industry_constraints" in variant:
+        variant_config["industry_constraints"] = deepcopy(variant["industry_constraints"])
+    if "overrides" in variant:
+        variant_config = deep_merge_dicts(variant_config, variant["overrides"])
+    return variant_config
+
+
+def deep_merge_dicts(base: dict[str, Any], updates: dict[str, Any]) -> dict[str, Any]:
+    merged = deepcopy(base)
+    for key, value in updates.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = deep_merge_dicts(merged[key], value)
+        else:
+            merged[key] = deepcopy(value)
+    return merged
+
+
+def build_strategy_variant_paths(paths: dict[str, Path], variant: dict[str, Any]) -> dict[str, Path]:
+    suffix = str(variant.get("output_dir_suffix") or variant["name"])
+    variant_dir = paths["strategy_comparison_dir"] / suffix
+    variant_dir.mkdir(parents=True, exist_ok=True)
+    variant_paths = dict(paths)
+    variant_paths.update(
+        {
+            "output_dir": variant_dir,
+            "backtest_nav_csv": variant_dir / "backtest_nav.csv",
+            "backtest_positions_csv": variant_dir / "backtest_positions.csv",
+            "backtest_summary": variant_dir / "backtest_summary.yaml",
+            "benchmark_summary": variant_dir / "benchmark_summary.yaml",
+            "contribution_by_symbol": variant_dir / "contribution_by_symbol.csv",
+            "contribution_by_sector": variant_dir / "contribution_by_sector.csv",
+            "contribution_by_industry": variant_dir / "contribution_by_industry.csv",
+            "exposure_by_sector": variant_dir / "exposure_by_sector.csv",
+            "exposure_by_industry": variant_dir / "exposure_by_industry.csv",
+            "contribution_summary": variant_dir / "contribution_summary.yaml",
+        }
+    )
+    return variant_paths
+
+
+def summarize_strategy_variant(
+    variant: dict[str, Any],
+    result: Any,
+    variant_paths: dict[str, Path],
+) -> dict[str, Any]:
+    summary = result.summary
+    benchmark = summary.get("benchmark", {})
+    concentration = sector_concentration_stats(result.positions)
+    constraints = variant.get("industry_constraints", {})
+    return {
+        "name": str(variant["name"]),
+        "description": str(variant.get("description", "")),
+        "output_dir": str(variant_paths["output_dir"]),
+        "industry_constraints_enabled": bool(constraints.get("enabled", False)),
+        "sector_momentum_tilt_enabled": bool(constraints.get("sector_momentum_tilt", {}).get("enabled", False)),
+        "period_count": summary.get("period_count"),
+        "cumulative_return": summary.get("cumulative_return"),
+        "annualized_return": summary.get("annualized_return"),
+        "annualized_volatility": summary.get("annualized_volatility"),
+        "information_ratio": summary.get("information_ratio"),
+        "max_drawdown": summary.get("max_drawdown"),
+        "avg_turnover": summary.get("avg_turnover"),
+        "avg_position_count": summary.get("avg_position_count"),
+        "excess_cumulative_return": benchmark.get("excess_cumulative_return"),
+        "relative_information_ratio": benchmark.get("relative_information_ratio"),
+        "alpha_annualized": benchmark.get("alpha_annualized"),
+        "beta": benchmark.get("beta"),
+        "correlation": benchmark.get("correlation"),
+        "max_avg_sector": concentration.get("max_avg_sector"),
+        "max_avg_sector_exposure": concentration.get("max_avg_sector_exposure"),
+        "max_sector_weight_any_period": concentration.get("max_sector_weight_any_period"),
+        "avg_sector_hhi": concentration.get("avg_sector_hhi"),
+    }
+
+
+def sector_concentration_stats(positions: pd.DataFrame) -> dict[str, Any]:
+    if positions.empty or "sector" not in positions.columns:
+        return {}
+    working = positions.copy()
+    working["sector"] = working["sector"].fillna("UNKNOWN").replace("", "UNKNOWN")
+    period_sector = working.groupby(["period", "sector"], dropna=False)["weight"].sum().reset_index()
+    if period_sector.empty:
+        return {}
+    sector_avg = period_sector.groupby("sector", dropna=False)["weight"].mean().sort_values(ascending=False)
+    hhi = period_sector.assign(weight_sq=period_sector["weight"] ** 2).groupby("period")["weight_sq"].sum()
+    return {
+        "max_avg_sector": str(sector_avg.index[0]),
+        "max_avg_sector_exposure": float(sector_avg.iloc[0]),
+        "max_sector_weight_any_period": float(period_sector["weight"].max()),
+        "avg_sector_hhi": float(hhi.mean()),
+    }
 
 
 def combine_alpha_and_feature_frames_raw(
@@ -650,6 +826,72 @@ def fmt_number(value: Any, digits: int = 4) -> str:
     return f"{numeric:.{digits}f}"
 
 
+def fmt_delta_pct(value: Any) -> str:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return "N/A"
+    if math.isnan(numeric):
+        return "N/A"
+    sign = "+" if numeric >= 0 else ""
+    return f"{sign}{numeric:.2%}"
+
+
+def metric_delta(left: dict[str, Any], right: dict[str, Any], key: str) -> float:
+    try:
+        return float(left.get(key)) - float(right.get(key))
+    except (TypeError, ValueError):
+        return math.nan
+
+
+def strategy_comparison_report_lines(summary: dict[str, Any]) -> list[str]:
+    if not summary.get("enabled", False):
+        return ["- 未启用。"]
+    rows = summary.get("rows", [])
+    if not rows:
+        return ["- 已启用，但没有生成策略对照结果。"]
+
+    lines = [
+        "| Variant | 规则 | 累计收益 | 年化收益 | 最大回撤 | 超额累计收益 | 年化 Alpha | Beta | 最大平均 sector 暴露 | Sector HHI |",
+        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+    ]
+    for row in rows:
+        rule = "行业增强" if row.get("sector_momentum_tilt_enabled") else "行业约束" if row.get("industry_constraints_enabled") else "不限制行业"
+        lines.append(
+            "| {name} | {rule} | {cum} | {ann} | {dd} | {excess} | {alpha} | {beta} | {sector} {sector_weight} | {hhi} |".format(
+                name=row.get("name", "N/A"),
+                rule=rule,
+                cum=fmt_pct(row.get("cumulative_return")),
+                ann=fmt_pct(row.get("annualized_return")),
+                dd=fmt_pct(row.get("max_drawdown")),
+                excess=fmt_pct(row.get("excess_cumulative_return")),
+                alpha=fmt_pct(row.get("alpha_annualized")),
+                beta=fmt_number(row.get("beta"), 3),
+                sector=row.get("max_avg_sector") or "N/A",
+                sector_weight=fmt_pct(row.get("max_avg_sector_exposure")),
+                hhi=fmt_number(row.get("avg_sector_hhi"), 3),
+            )
+        )
+
+    by_name = {row.get("name"): row for row in rows}
+    unconstrained = by_name.get("unconstrained_top10")
+    capped = by_name.get("sector_capped_top10")
+    tilted = by_name.get("sector_momentum_tilt_top10")
+    lines.extend(["", "对照解读："])
+    if unconstrained and capped:
+        lines.append(
+            f"- 行业约束相对原始 Top10 的年化收益变化：{fmt_delta_pct(metric_delta(capped, unconstrained, 'annualized_return'))}；超额累计收益变化：{fmt_delta_pct(metric_delta(capped, unconstrained, 'excess_cumulative_return'))}。"
+        )
+    if capped and tilted:
+        lines.append(
+            f"- 行业增强相对行业约束的年化收益变化：{fmt_delta_pct(metric_delta(tilted, capped, 'annualized_return'))}；超额累计收益变化：{fmt_delta_pct(metric_delta(tilted, capped, 'excess_cumulative_return'))}。"
+        )
+    lines.append(
+        "- 判断口径：如果行业约束后收益明显下降，原策略更像行业押注；如果约束后仍稳定，模型更可能有行业内选股能力；如果行业增强最好，说明行业趋势和个股精选可能都值得保留。"
+    )
+    return lines
+
+
 def write_report(
     predictions: pd.DataFrame,
     meta: dict[str, Any],
@@ -687,6 +929,7 @@ def write_report(
     backtest_summary = meta.get("backtest_summary", {})
     benchmark_summary = backtest_summary.get("benchmark", {})
     attribution_summary = backtest_summary.get("attribution", {})
+    strategy_comparison_summary = meta.get("strategy_comparison", {})
     lines = [
         f"# {config['experiment']['name']} Report",
         "",
@@ -899,6 +1142,10 @@ def write_report(
                 ]
             ),
             "",
+            "## 行业暴露对照实验",
+            "",
+            *strategy_comparison_report_lines(strategy_comparison_summary),
+            "",
             "## 持仓贡献与行业暴露",
             "",
             *(
@@ -1018,6 +1265,8 @@ def write_report(
             "- `exposure_by_sector.csv`：按 sector 聚合的平均/最大持仓权重。",
             "- `exposure_by_industry.csv`：按 industry 聚合的平均/最大持仓权重。",
             "- `contribution_summary.yaml`：持仓贡献和行业暴露摘要。",
+            "- `strategy_comparison.csv`：原始 Top10、行业约束 Top10、行业增强 Top10 的对照指标。",
+            "- `strategy_comparison/`：每个策略 variant 的独立回测、基准和归因输出。",
             "- `report.md`：本报告。",
             "- `resolved_config.yaml`：本次实际使用配置，复盘时优先看它。",
             "- `qlib_source_csv/`：逐股票原始日线 CSV。",

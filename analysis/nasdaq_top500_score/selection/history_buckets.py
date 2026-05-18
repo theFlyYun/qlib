@@ -234,10 +234,10 @@ def violates_industry_constraints(
     if not industry_constraints.get("enabled", False):
         return False
 
-    max_sector = industry_constraints.get("max_sector")
-    max_industry = industry_constraints.get("max_industry")
     sector = group_value(candidate, "sector")
     industry = group_value(candidate, "industry")
+    max_sector = max_sector_for_candidate(sector, industry_constraints)
+    max_industry = industry_constraints.get("max_industry")
 
     if max_sector is not None and sector is not None:
         sector_count = sum(1 for row in selected_rows if group_value(row, "sector") == sector)
@@ -248,6 +248,13 @@ def violates_industry_constraints(
         if industry_count >= int(max_industry):
             return True
     return False
+
+
+def max_sector_for_candidate(sector: str | None, industry_constraints: dict[str, Any]) -> Any:
+    max_by_sector = industry_constraints.get("max_sector_by_value", {})
+    if sector is not None and sector in max_by_sector:
+        return max_by_sector[sector]
+    return industry_constraints.get("max_sector")
 
 
 def group_value(row: pd.Series, column: str) -> str | None:

@@ -158,17 +158,16 @@ export SEC_EDGAR_USER_AGENT="Your Name your-email@example.com"
   --config analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_lgbm_10y_frozen_2023_top500_5d_pit_safe.yaml
 ```
 
-已跑通结果：1000 只候选股票中 500 只进入冻结股票池；成本后累计收益 `26.41%`，年化收益 `10.53%`，最大回撤 `-31.60%`。这比运行日市值股票池的 PIT 过滤版明显保守，说明股票池未来信息是旧回测收益异常高的重要来源。
+已跑通结果：1000 只候选股票中 500 只进入冻结股票池。最近一次复跑的默认 Top10 策略成本后累计收益 `45.35%`，年化收益 `17.32%`，最大回撤 `-28.46%`。这比运行日市值股票池的 PIT 过滤版明显保守，说明股票池未来信息是旧回测收益异常高的重要来源。
 
 该配置同时启用 FRED `NASDAQCOM` 基准复盘。当前结果：
 
 ```text
-策略累计收益：26.41%
+策略累计收益：45.35%
 NASDAQCOM 基准累计收益：78.78%
-超额累计收益：-29.30%
-Beta：1.092
-年化 Alpha：-12.25%
-相对信息比率：-0.319
+超额累计收益：-18.70%
+Beta：1.040
+年化 Alpha：-4.74%
 ```
 
 这说明冻结股票池后，策略虽然有绝对收益，但没有跑赢纳斯达克综合指数。
@@ -183,6 +182,26 @@ exposure_by_sector.csv
 exposure_by_industry.csv
 contribution_summary.yaml
 ```
+
+该配置还会生成行业暴露对照实验，复用同一批测试期模型分数，只改变 Top10 选股规则：
+
+```text
+strategy_comparison.csv
+strategy_comparison_summary.yaml
+strategy_comparison/unconstrained_top10/
+strategy_comparison/sector_capped_top10/
+strategy_comparison/sector_momentum_tilt_top10/
+```
+
+最近一次对照结果：
+
+```text
+unconstrained_top10：累计收益 29.72%，年化收益 11.76%，超额累计收益 -27.44%
+sector_capped_top10：累计收益 57.38%，年化收益 21.37%，超额累计收益 -11.97%
+sector_momentum_tilt_top10：累计收益 57.85%，年化收益 21.53%，超额累计收益 -11.71%
+```
+
+当前判断：适度限制行业集中度后，组合表现更稳；行业动量增强略好于行业约束，但改善幅度很小，不能单独证明行业趋势模块已经稳定有效。
 
 回测口径：
 
@@ -289,6 +308,12 @@ EDGAR 配置会额外生成 `fundamental_features.parquet`、`fundamental_failur
 证券主数据、流动性过滤、分桶和行业约束配置会额外生成 `security_master.csv`、`security_master_exclusions.csv`、`universe_exclusions.csv`、`liquidity_profile.csv`、`liquidity_exclusions.csv`、`history_buckets.csv`、`bucketed_predictions.csv` 和 `selected_top10.csv`。
 
 启用回测的配置会额外生成 `test_predictions.csv`、`backtest_nav.csv`、`backtest_positions.csv` 和 `backtest_summary.yaml`。
+
+启用基准复盘的配置会额外生成 `benchmark_prices.csv` 和 `benchmark_summary.yaml`。
+
+启用贡献归因的配置会额外生成 `contribution_by_symbol.csv`、`contribution_by_sector.csv`、`contribution_by_industry.csv`、`exposure_by_sector.csv`、`exposure_by_industry.csv` 和 `contribution_summary.yaml`。
+
+启用策略对照的配置会额外生成 `strategy_comparison.csv`、`strategy_comparison_summary.yaml` 和 `strategy_comparison/` 下每个 variant 的独立回测与归因文件。
 
 `resolved_config.yaml` 是复盘入口：它记录这次实验实际使用的股票池、标签、特征、切分和模型参数。
 

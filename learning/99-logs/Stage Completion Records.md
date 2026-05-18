@@ -1994,3 +1994,137 @@ learning/00-start-here/Qlib Commands.md
 learning/99-logs/Qlib Learning Log.md
 learning/99-logs/Stage Completion Records.md
 ```
+
+## 2026-05-18 阶段 5.5：行业暴露对照实验
+
+目标：
+
+把“行业押注”和“个股选择”拆开验证。用同一批模型分数、同一训练集、同一测试期，只改变 Top10 组合构建规则。
+
+为什么要做：
+
+行业暴露不是坏事，但必须知道它是有意识的策略来源，还是模型无意中集中押注。如果不拆开看，就无法判断收益来自行业上涨、个股选择，还是两者混合。
+
+输入数据：
+
+```text
+Nasdaq public as-of 2023-12-31 近似冻结 Top500
+固定行情窗口：2016-05-17 到 2026-05-17
+训练期：2016-08-11 到 2021-12-31
+验证期：2022-01-03 到 2023-12-29
+测试期：2024-01-02 到 2026-05-15
+Alpha158 价格成交量特征
+SEC EDGAR PIT 财报估值特征
+未来 5 日收益标签
+同一份 test_predictions.csv
+```
+
+核心概念：
+
+```text
+行业暴露：组合持仓集中在哪些 sector / industry
+行业约束：限制单个 sector / industry 最多持仓数量
+行业增强：允许近期强势 sector 多拿一点名额，但仍有上限
+Sector HHI：行业权重平方和，越高代表越集中
+```
+
+实验动作：
+
+```text
+新增 strategy_comparison 配置
+新增 unconstrained_top10：不限制行业
+新增 sector_capped_top10：sector <= 3，industry <= 2
+新增 sector_momentum_tilt_top10：强势 sector 可多 1 个名额，sector 上限 4
+三组策略复用同一批模型预测分数
+每组策略输出独立回测、基准和贡献归因
+新增 strategy_comparison.csv 汇总三组结果
+```
+
+评价指标：
+
+```text
+累计收益
+年化收益
+最大回撤
+超额累计收益
+年化 Alpha
+Beta
+最大平均 sector 暴露
+最大单期 sector 权重
+Sector HHI
+```
+
+结果解读：
+
+```text
+unconstrained_top10：
+  累计收益 29.72%
+  年化收益 11.76%
+  最大回撤 -31.36%
+  超额累计收益 -27.44%
+  年化 Alpha -9.83%
+  最大平均 sector 暴露 Health Care 35.13%
+  Sector HHI 0.307
+
+sector_capped_top10：
+  累计收益 57.38%
+  年化收益 21.37%
+  最大回撤 -28.69%
+  超额累计收益 -11.97%
+  年化 Alpha -1.24%
+  最大平均 sector 暴露 Health Care 27.18%
+  Sector HHI 0.227
+
+sector_momentum_tilt_top10：
+  累计收益 57.85%
+  年化收益 21.53%
+  最大回撤 -29.78%
+  超额累计收益 -11.71%
+  年化 Alpha -1.10%
+  最大平均 sector 暴露 Health Care 28.72%
+  Sector HHI 0.239
+```
+
+当前判断：
+
+```text
+行业约束明显优于原始不限制 Top10。
+行业增强略优于行业约束，但改善幅度很小。
+三组策略仍未形成明确正 alpha。
+当前模型更适合保留行业风险控制，再继续验证行业内选股能力。
+```
+
+遗留问题：
+
+```text
+行业分类仍不是历史 PIT 行业分类
+NASDAQCOM 不是总回报复权基准
+行业动量只用 60 日等权收益，信号较粗糙
+没有真实滑点、冲击成本和容量约束
+没有退市股票，仍有幸存者偏差
+```
+
+下一阶段准备：
+
+```text
+做行业内选股复盘：每个 sector 内单独看 score 排名与未来收益
+比较不同 max_sector 参数：2 / 3 / 4
+尝试行业等权组合规则
+如果行业动量继续保留，需要单独验证行业动量信号本身
+```
+
+产出文件：
+
+```text
+analysis/nasdaq_top500_score/backtest.py
+analysis/nasdaq_top500_score/run_qlib_alpha158_lightgbm.py
+analysis/nasdaq_top500_score/selection/history_buckets.py
+analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_lgbm_10y_frozen_2023_top500_5d_pit_safe.yaml
+tests/analysis/test_topk_backtest.py
+tests/analysis/test_stock_pool_selection.py
+learning/06-portfolio-risk/Industry Exposure Strategy Comparison.md
+learning/06-portfolio-risk/Industry Neutralization.md
+learning/00-start-here/Qlib Commands.md
+learning/99-logs/Qlib Learning Log.md
+learning/99-logs/Stage Completion Records.md
+```

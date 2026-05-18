@@ -17,7 +17,9 @@
 比较行业中性前后的 IC 和回测
 ```
 
-当前阶段先完成的是模型输入层的行业相对特征，见 [[Industry Features And Relative Ranking]]。它解决“同行里谁更好”的问题，但还没有限制最终组合的行业权重。
+当前阶段先完成的是模型输入层的行业相对特征，见 [[Industry Features And Relative Ranking]]。它解决“同行里谁更好”的问题。
+
+组合层面已经开始做行业暴露对照，见 [[Industry Exposure Strategy Comparison]]。这一步不禁止买强势行业，而是把原始 TopK、行业约束 TopK 和行业增强 TopK 放在同一批模型分数下比较。
 
 ## 当前 Nasdaq 问题
 
@@ -43,4 +45,4 @@ REIT
 
 ## 下一阶段准备
 
-阅读 [[Industry Features And Relative Ranking]] 和 [[Portfolio Risk Control]]，下一步把行业相对信号扩展到组合约束。
+阅读 [[Industry Features And Relative Ranking]]、[[Industry Exposure Strategy Comparison]] 和 [[Portfolio Risk Control]]，下一步把行业相对信号扩展到更稳定的行业权重规则。
