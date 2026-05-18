@@ -83,3 +83,13 @@ def test_fixed_15y_configs_parse() -> None:
         assert config["data"]["start_date"] == "2011-05-17"
         assert config["data"]["end_date"] == "2026-05-17"
         assert config["split"]["method"] == "date"
+
+
+def test_frozen_2023_config_parses_and_selects_before_test_window() -> None:
+    config = load_config(
+        Path("analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_lgbm_10y_frozen_2023_top500_5d_pit_safe.yaml")
+    )
+
+    assert config["universe"]["selection"]["method"] == "approximate_market_cap_asof"
+    assert config["universe"]["selection"]["as_of_date"] == "2023-12-31"
+    assert config["split"]["test"]["start"] == "2024-01-01"

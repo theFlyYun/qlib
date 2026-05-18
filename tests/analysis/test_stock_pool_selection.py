@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from analysis.nasdaq_top500_score.data_sources.nasdaq_public import select_approximate_asof_universe
 from analysis.nasdaq_top500_score.selection import (
     apply_bucket_ranking,
     apply_liquidity_filter,
@@ -104,6 +105,50 @@ def test_history_bucket_boundaries_are_inclusive(tmp_path: Path) -> None:
     assert buckets.loc["MID", "history_bucket"] == "5_10y"
     assert buckets.loc["SHORT", "history_bucket"] == "2_5y"
     assert buckets.loc["NEW", "history_bucket"] == "lt_2y"
+
+
+def test_approximate_asof_universe_uses_pre_test_price_snapshot(tmp_path: Path) -> None:
+    source_dir = tmp_path / "qlib_source_csv"
+    source_dir.mkdir()
+
+    def write_symbol(symbol: str, closes: list[tuple[str, float]]) -> None:
+        pd.DataFrame(
+            {
+                "date": [date for date, _ in closes],
+                "symbol": symbol,
+                "open": [close for _, close in closes],
+                "high": [close for _, close in closes],
+                "low": [close for _, close in closes],
+                "close": [close for _, close in closes],
+                "vwap": [close for _, close in closes],
+                "volume": [1 for _ in closes],
+            }
+        ).to_csv(source_dir / f"{symbol}.csv", index=False)
+
+    write_symbol("AAA", [("2023-12-29", 10), ("2026-05-15", 100)])
+    write_symbol("BBB", [("2023-12-29", 80), ("2026-05-15", 80)])
+    write_symbol("CCC", [("2024-01-02", 200), ("2026-05-15", 200)])
+    universe = pd.DataFrame(
+        [
+            {"symbol": "AAA", "market_cap": 1000.0},
+            {"symbol": "BBB", "market_cap": 800.0},
+            {"symbol": "CCC", "market_cap": 700.0},
+        ]
+    )
+
+    selected, diagnostics = select_approximate_asof_universe(
+        universe,
+        source_dir,
+        {"as_of_date": "2023-12-31"},
+        top_n=1,
+    )
+
+    assert selected["symbol"].tolist() == ["BBB"]
+    assert selected.iloc[0]["asof_close_date"] == "2023-12-29"
+    assert selected.iloc[0]["market_cap_asof_estimate"] == 800.0
+    diagnostics_by_symbol = diagnostics.set_index("symbol")
+    assert diagnostics_by_symbol.loc["AAA", "market_cap_asof_estimate"] == 100.0
+    assert diagnostics_by_symbol.loc["CCC", "selection_error"] == "no_price_on_or_before_asof"
 
 
 def test_liquidity_filter_removes_low_dollar_volume_and_low_price_symbols(tmp_path: Path) -> None:

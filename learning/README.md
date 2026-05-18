@@ -48,6 +48,7 @@
 - [Backtest And Costs](<04-strategy-backtest/Backtest And Costs.md>)
 - [TopK Cost Backtest](<04-strategy-backtest/TopK Cost Backtest.md>)
 - [PIT Safe Backtest](<04-strategy-backtest/PIT Safe Backtest.md>)
+- [Future Information Audit](<04-strategy-backtest/Future Information Audit.md>)
 
 ### 05 Data Expansion
 

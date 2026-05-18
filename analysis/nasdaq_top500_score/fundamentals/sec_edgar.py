@@ -270,6 +270,7 @@ class SecEdgarFeatureBuilder:
                 "form": filing.form,
                 "filed": filing.filed,
                 "accepted": filing.accepted,
+                "accepted_at": filing.accepted,
                 "effective_date": effective_date,
                 "period_end": filing.report_date,
                 "is_amended_filing": 1 if str(filing.form).endswith("/A") else 0,
@@ -281,6 +282,7 @@ class SecEdgarFeatureBuilder:
         events = pd.DataFrame(rows)
         if events.empty:
             return events
+        events["accepted_at"] = to_naive_timestamp(events["accepted_at"])
         events["effective_date"] = to_naive_datetime(events["effective_date"])
         events["period_end"] = to_naive_datetime(events["period_end"])
         events = events.dropna(subset=["effective_date"]).sort_values("effective_date").reset_index(drop=True)
@@ -297,6 +299,17 @@ class SecEdgarFeatureBuilder:
         price = load_price_frame(self.paths["source_dir"], symbol)
         if price.empty:
             failures.append({"symbol": symbol, "cik": cik, "error": "missing_price", "detail": "no Qlib source CSV"})
+            return pd.DataFrame()
+        events = shift_events_to_next_trading_day(events, price["datetime"])
+        if events.empty:
+            failures.append(
+                {
+                    "symbol": symbol,
+                    "cik": cik,
+                    "error": "no_effective_filing_dates",
+                    "detail": "no filing has a next trading day in the price calendar",
+                }
+            )
             return pd.DataFrame()
 
         daily = pd.merge_asof(
@@ -342,7 +355,7 @@ def build_submissions_frame(submissions: dict[str, Any], forms: set[str]) -> pd.
     )
     frame = frame[frame["form"].isin(forms)].copy()
     frame["filed"] = to_naive_datetime(frame["filed"])
-    frame["accepted"] = to_naive_datetime(frame["accepted"])
+    frame["accepted"] = to_naive_timestamp(frame["accepted"])
     frame["report_date"] = to_naive_datetime(frame["report_date"])
     return frame.dropna(subset=["accession"]).sort_values(["accepted", "filed"])
 
@@ -388,6 +401,37 @@ def compute_event_ratios(events: pd.DataFrame) -> pd.DataFrame:
     events["liabilities_to_assets"] = safe_div(events["liabilities"], events["assets"])
     events["cash_to_assets"] = safe_div(events["cash"], events["assets"])
 
+    return update_last_filing_dates(events)
+
+
+def shift_events_to_next_trading_day(events: pd.DataFrame, calendar: pd.Series) -> pd.DataFrame:
+    """Move EDGAR filing visibility to the next available trading date."""
+
+    if events.empty:
+        return events
+    calendar_dates = pd.Series(pd.to_datetime(calendar, errors="coerce")).dropna().dt.normalize()
+    calendar_index = pd.DatetimeIndex(calendar_dates.drop_duplicates().sort_values())
+    if calendar_index.empty:
+        return events.iloc[0:0].copy()
+
+    shifted = events.copy()
+    accepted = pd.to_datetime(
+        shifted.get("accepted_at", pd.Series(pd.NaT, index=shifted.index)),
+        errors="coerce",
+    )
+    source = accepted.where(accepted.notna(), pd.to_datetime(shifted.get("filed"), errors="coerce"))
+    source = source.where(source.notna(), pd.to_datetime(shifted["effective_date"], errors="coerce"))
+    source_dates = source.dt.normalize()
+    shifted["effective_date"] = pd.NaT
+    valid = source_dates.notna()
+    positions = calendar_index.searchsorted(source_dates[valid], side="right")
+    next_dates = [calendar_index[position] if position < len(calendar_index) else pd.NaT for position in positions]
+    shifted.loc[valid, "effective_date"] = next_dates
+    shifted = shifted.dropna(subset=["effective_date"]).sort_values("effective_date").reset_index(drop=True)
+    return update_last_filing_dates(shifted)
+
+
+def update_last_filing_dates(events: pd.DataFrame) -> pd.DataFrame:
     events["last_10q_date"] = events["effective_date"].where(events["form"].str.contains("10-Q", regex=False)).ffill()
     events["last_10k_date"] = events["effective_date"].where(events["form"].str.contains("10-K", regex=False)).ffill()
     return events
@@ -414,6 +458,10 @@ def load_price_frame(source_dir: Path, symbol: str) -> pd.DataFrame:
 
 def to_naive_datetime(value: Any) -> pd.Series:
     return pd.to_datetime(value, errors="coerce", utc=True, format="mixed").dt.tz_convert(None).dt.normalize()
+
+
+def to_naive_timestamp(value: Any) -> pd.Series:
+    return pd.to_datetime(value, errors="coerce", utc=True, format="mixed").dt.tz_convert(None)
 
 
 def safe_div(numerator: pd.Series, denominator: pd.Series) -> pd.Series:

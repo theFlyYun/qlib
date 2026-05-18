@@ -108,7 +108,8 @@ def write_price_csv(tmp_path: Path) -> None:
         [
             {"date": "2020-04-29", "symbol": "AAA", "open": 10, "high": 10, "low": 10, "close": 10, "vwap": 10, "volume": 1},
             {"date": "2020-04-30", "symbol": "AAA", "open": 11, "high": 11, "low": 11, "close": 11, "vwap": 11, "volume": 1},
-            {"date": "2021-05-03", "symbol": "AAA", "open": 12, "high": 12, "low": 12, "close": 12, "vwap": 12, "volume": 1},
+            {"date": "2020-05-01", "symbol": "AAA", "open": 12, "high": 12, "low": 12, "close": 12, "vwap": 12, "volume": 1},
+            {"date": "2021-05-03", "symbol": "AAA", "open": 13, "high": 13, "low": 13, "close": 13, "vwap": 13, "volume": 1},
         ]
     ).to_csv(source_dir / "AAA.csv", index=False)
 
@@ -165,9 +166,12 @@ def test_sec_edgar_features_are_point_in_time_and_record_failures(tmp_path: Path
     assert features.loc[(pd.Timestamp("2020-04-29"), "AAA"), "edgar_revenue_ttm"] != features.loc[
         (pd.Timestamp("2020-04-29"), "AAA"), "edgar_revenue_ttm"
     ]
-    assert features.loc[(pd.Timestamp("2020-04-30"), "AAA"), "edgar_revenue_ttm"] == 100.0
+    assert features.loc[(pd.Timestamp("2020-04-30"), "AAA"), "edgar_revenue_ttm"] != features.loc[
+        (pd.Timestamp("2020-04-30"), "AAA"), "edgar_revenue_ttm"
+    ]
+    assert features.loc[(pd.Timestamp("2020-05-01"), "AAA"), "edgar_revenue_ttm"] == 100.0
     assert features.loc[(pd.Timestamp("2021-05-03"), "AAA"), "edgar_revenue_ttm"] == 500.0
-    assert features.loc[(pd.Timestamp("2021-05-03"), "AAA"), "edgar_price_to_sales"] == 12 * 10 / 500
+    assert features.loc[(pd.Timestamp("2021-05-03"), "AAA"), "edgar_price_to_sales"] == 13 * 10 / 500
     assert features.loc[(pd.Timestamp("2021-05-03"), "AAA"), "edgar_is_amended_filing"] == 1
 
     failures = result.failures.set_index(["symbol", "error"])

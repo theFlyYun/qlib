@@ -190,6 +190,111 @@ learning/03-modeling/Model Validation.md
 learning/99-logs/Stage Completion Records.md
 ```
 
+## 2026-05-18 第 5.2 条：未来函数审计与 as-of 冻结股票池
+
+目标：
+
+继续减少 5 日 Top10 回测中的未来信息风险，重点修正 EDGAR 披露生效日，并新增 as-of 2023-12-31 的冻结股票池实验。
+
+为什么要做：
+
+PIT 过滤版已经修正了历史长度分桶和流动性过滤，但仍有两个明显风险：财报披露可能当天可见，股票池仍使用运行日市值前 500。两者都会让回测比真实历史更乐观。
+
+输入数据：
+
+```text
+Nasdaq public 当前候选池
+固定行情窗口：2016-05-17 到 2026-05-17
+as-of 股票池日期：2023-12-31
+训练期：2016-08-11 到 2021-12-31
+验证期：2022-01-03 到 2023-12-29
+测试期：2024-01-02 到 2026-05-15
+Alpha158 价格成交量特征
+SEC EDGAR 10-K / 10-Q 财报估值特征
+未来 5 日收益标签
+```
+
+核心概念：
+
+```text
+EDGAR acceptanceDateTime：SEC 接收申报的具体时间
+下一交易日生效：盘后披露不能被当天收盘前的模型使用
+as-of frozen universe：在测试期开始前固定股票池
+近似历史市值：当前市值 * as-of close / 最新 close
+残余未来信息：当前数据源缺少退市、历史 shares outstanding 和历史证券主数据
+```
+
+实验动作：
+
+```text
+EDGAR 特征从披露当天可见改为下一交易日可见
+新增 universe.selection.method: approximate_market_cap_asof
+新增 as_of_date: 2023-12-31
+新增 universe_candidates.csv 和 universe_selection.csv
+新增冻结股票池配置
+补充单元测试验证 EDGAR 生效日顺延和 as-of 股票池估算
+新增未来函数审计学习文档
+```
+
+评价指标：
+
+```text
+EDGAR 披露日前不可见
+披露后第一个交易日可见
+冻结股票池只保留 as-of 估算市值前 500
+as-of 日期必须早于 test.start
+IC / Rank IC
+TopK 成本后累计收益、年化收益、最大回撤、换手
+```
+
+结果解读：
+
+```text
+冻结股票池实验已运行完成。
+1000 只候选股票中，500 只入选冻结股票池，407 只低于 as-of 前 500，52 只在 2023-12-31 前无价格，41 只下载失败或历史不足。
+IC：0.010304
+Rank IC：-0.007921
+成本后累计收益：26.41%
+年化收益：10.53%
+年化波动：37.45%
+信息比率：0.455
+最大回撤：-31.60%
+平均换手：129.98%
+PIT 过滤版年化收益曾为 188.81%，冻结股票池后降到 10.53%，说明运行日当前市值前 500 是一个重要未来信息来源。
+当前训练阶段选训练集时间点前的市值前 500，方向是正确的，但只有在市值、证券状态、退市和行业分类都来自历史 PIT 数据时，才能称为严格避免股票池未来信息。
+当前 Nasdaq public 版本是学习级近似，不是完整 PIT。
+```
+
+遗留问题：
+
+```text
+没有退市股票，仍有幸存者偏差
+没有历史 shares outstanding，as-of market cap 只能用价格近似
+没有历史行业分类和历史证券主数据
+Nasdaq public 行情不是专业复权数据
+固定 10 bps 成本仍偏简单
+```
+
+下一阶段准备：
+
+继续做数据源升级：历史 shares outstanding、退市股票、真实复权行情和历史行业分类。冻结股票池已经把收益压回更合理区间，此时继续调模型不如先提高数据口径。
+
+产出文件：
+
+```text
+analysis/nasdaq_top500_score/fundamentals/sec_edgar.py
+analysis/nasdaq_top500_score/data_sources/nasdaq_public.py
+analysis/nasdaq_top500_score/run_qlib_alpha158_lightgbm.py
+analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_lgbm_10y_frozen_2023_top500_5d_pit_safe.yaml
+tests/analysis/test_sec_edgar_fundamentals.py
+tests/analysis/test_stock_pool_selection.py
+tests/analysis/test_fixed_window_config.py
+learning/04-strategy-backtest/Future Information Audit.md
+learning/00-start-here/Qlib Commands.md
+learning/99-logs/Qlib Learning Log.md
+learning/99-logs/Stage Completion Records.md
+```
+
 ## 2026-05-17 阶段 E：数据口径升级
 
 目标：

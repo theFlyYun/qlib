@@ -143,6 +143,23 @@ export SEC_EDGAR_USER_AGENT="Your Name your-email@example.com"
 
 注意：这仍不是完全 PIT 回测，因为 `nasdaq_public` 股票池仍按运行日市值前 500 构建，不是历史时点的前 500。
 
+as-of 2023-12-31 近似冻结股票池配置：
+
+```text
+analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_lgbm_10y_frozen_2023_top500_5d_pit_safe.yaml
+```
+
+这版会先按当前市值多取候选池，下载固定 10 年行情，再用 `2023-12-31` 前最近交易日收盘价近似估算当时市值，最后只保留估算前 500 进入训练、预测和回测。它用于降低“用测试期之后的运行日市值选股”的未来信息风险，但仍不是完整 PIT 股票池，因为 Nasdaq public 不提供历史 shares outstanding、退市股票和历史证券主数据。
+
+```bash
+export SEC_EDGAR_USER_AGENT="Your Name your-email@example.com"
+
+.venv/bin/python -u analysis/nasdaq_top500_score/run_qlib_alpha158_lightgbm.py \
+  --config analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_lgbm_10y_frozen_2023_top500_5d_pit_safe.yaml
+```
+
+已跑通结果：1000 只候选股票中 500 只进入冻结股票池；成本后累计收益 `26.41%`，年化收益 `10.53%`，最大回撤 `-31.60%`。这比运行日市值股票池的 PIT 过滤版明显保守，说明股票池未来信息是旧回测收益异常高的重要来源。
+
 回测口径：
 
 ```text

@@ -91,6 +91,7 @@ def validate_config(config: dict[str, Any]) -> None:
         if security_master.get("enabled") and not security_master.get("allowed_asset_types"):
             raise ValueError("enabled universe.security_master requires allowed_asset_types")
     if source == "nasdaq_public":
+        validate_universe_selection(config)
         fixed_window = bool(config["data"].get("start_date") or config["data"].get("end_date"))
         if fixed_window:
             missing = [key for key in ["start_date", "end_date"] if key not in config["data"]]
@@ -143,6 +144,30 @@ def validate_config(config: dict[str, Any]) -> None:
     validate_industry_constraints(config)
     validate_liquidity_filter(config)
     validate_backtest(config)
+
+
+def validate_universe_selection(config: dict[str, Any]) -> None:
+    selection = config["universe"].get("selection", {})
+    if not selection:
+        return
+    method = selection.get("method", "current_market_cap")
+    if method not in {"current_market_cap", "approximate_market_cap_asof"}:
+        raise ValueError("universe.selection.method must be current_market_cap or approximate_market_cap_asof")
+    if method == "current_market_cap":
+        return
+    if "as_of_date" not in selection:
+        raise ValueError("approximate_market_cap_asof requires universe.selection.as_of_date")
+    missing_data_dates = [key for key in ["start_date", "end_date"] if key not in config["data"]]
+    if missing_data_dates:
+        raise ValueError("approximate_market_cap_asof requires fixed data.start_date and data.end_date")
+    top_n = int(config["universe"]["top_n_by_market_cap"])
+    candidate_top_n = int(selection.get("candidate_top_n_by_current_market_cap", top_n))
+    if candidate_top_n < top_n:
+        raise ValueError("candidate_top_n_by_current_market_cap must be >= top_n_by_market_cap")
+    validate_date_order(config["data"]["start_date"], selection["as_of_date"], "universe.selection")
+    validate_date_order(selection["as_of_date"], config["data"]["end_date"], "universe.selection")
+    if config["split"]["method"] == "date" and date_value(selection["as_of_date"]) >= date_value(config["split"]["test"]["start"]):
+        raise ValueError("as-of universe selection date must be before split.test.start")
 
 
 def validate_bucket_ranking(config: dict[str, Any]) -> None:
@@ -247,6 +272,8 @@ def build_paths(config: dict[str, Any]) -> dict[str, Path]:
         "source_dir": output_dir / "qlib_source_csv",
         "qlib_dir": output_dir / "qlib_data",
         "universe_csv": output_dir / "universe.csv",
+        "universe_candidates_csv": output_dir / "universe_candidates.csv",
+        "universe_selection_csv": output_dir / "universe_selection.csv",
         "universe_exclusions_csv": output_dir / "universe_exclusions.csv",
         "security_master_csv": output_dir / "security_master.csv",
         "security_master_exclusions_csv": output_dir / "security_master_exclusions.csv",
@@ -557,6 +584,17 @@ def format_yaml_block(value: Any) -> list[str]:
     return ["```yaml", dumped, "```"]
 
 
+def universe_future_information_warning(config: dict[str, Any]) -> list[str]:
+    selection = config["universe"].get("selection", {})
+    if selection.get("method") == "approximate_market_cap_asof":
+        return [
+            "重要限制：本配置使用 as-of 近似冻结股票池，已经避免直接用测试期后的市值排名选股；但 `nasdaq_public` 仍缺少历史 shares outstanding、退市股票和历史证券主数据，因此它只能降低未来信息风险，不能等同于完整 PIT 股票池。",
+        ]
+    return [
+        "重要限制：当前 `nasdaq_public` 股票池仍按运行日的 Nasdaq 市值前 500 构建，不是历史 PIT 股票池；因此即使启用 point_in_time_filters，仍不能视为完全杜绝未来信息的严谨回测。",
+    ]
+
+
 def fmt_pct(value: Any) -> str:
     try:
         numeric = float(value)
@@ -787,7 +825,7 @@ def write_report(
                     "",
                     "本回测使用测试期每日模型分数，按配置的调仓间隔做非重叠 TopK 组合；信号日后一个交易日入场，持有指定交易日后退出，并扣除单边交易成本。若启用 point_in_time_filters，历史长度分桶和流动性过滤按信号日当时可见行情重新计算。它仍是学习研究材料，不是投资建议。",
                     "",
-                    "重要限制：当前 `nasdaq_public` 股票池仍按运行日的 Nasdaq 市值前 500 构建，不是历史 PIT 股票池；因此即使启用 point_in_time_filters，仍不能视为完全杜绝未来信息的严谨回测。",
+                    *universe_future_information_warning(config),
                 ]
                 if meta.get("backtest_enabled", False)
                 else ["- 未启用。"]
@@ -857,6 +895,8 @@ def write_report(
             "## 输出文件",
             "",
             "- `universe.csv`：本次实验股票池。",
+            "- `universe_candidates.csv`：冻结股票池实验中的初始候选池；普通实验与 `universe.csv` 一致。",
+            "- `universe_selection.csv`：as-of 近似冻结股票池的候选诊断、估算市值和入选状态。",
             "- `security_master.csv`：本次实验证券主数据和证券类型分类。",
             "- `security_master_exclusions.csv`：证券主数据层剔除记录。",
             "- `universe_exclusions.csv`：股票池清洗剔除记录；仅启用清洗时生成有效内容。",

@@ -125,6 +125,15 @@ export SEC_EDGAR_USER_AGENT="Your Name your-email@example.com"
   --config analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_lgbm_10y_clean_bucket_top10_5d_pit_safe.yaml
 ```
 
+运行 as-of 2023-12-31 近似冻结股票池的 PIT 过滤版 5 日 Top10 回测：
+
+```bash
+export SEC_EDGAR_USER_AGENT="Your Name your-email@example.com"
+
+.venv/bin/python -u analysis/nasdaq_top500_score/run_qlib_alpha158_lightgbm.py \
+  --config analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_lgbm_10y_frozen_2023_top500_5d_pit_safe.yaml
+```
+
 运行真实 EDGAR smoke test 前先设置 User-Agent：
 
 ```bash
