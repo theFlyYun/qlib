@@ -19,7 +19,9 @@
 
 当前阶段先完成的是模型输入层的行业相对特征，见 [[Industry Features And Relative Ranking]]。它解决“同行里谁更好”的问题。
 
-组合层面已经开始做行业暴露对照，见 [[Industry Exposure Strategy Comparison]]。这一步不禁止买强势行业，而是把原始 TopK、行业约束 TopK 和行业增强 TopK 放在同一批模型分数下比较。
+组合层面已经开始做行业暴露对照，见 [[Industry Exposure Strategy Comparison]]。这一步不禁止买强势行业，而是把原始 TopK、不同 `max_sector` 行业约束 TopK 和行业增强 TopK 放在同一批模型分数下比较。
+
+行业约束强度复盘见 [[Industry Constraint Sensitivity]]。当前结果支持先保留 `max_sector=3`、`max_industry=2`，因为它在本次实验里年化收益和超额收益最好。
 
 行业内部的选股能力复盘见 [[Within Sector Stock Selection Review]]。它回答的是：在同一个 sector 内，模型能不能把未来收益更好的股票排到前面。
 
@@ -47,4 +49,4 @@ REIT
 
 ## 下一阶段准备
 
-阅读 [[Industry Features And Relative Ranking]]、[[Industry Exposure Strategy Comparison]]、[[Within Sector Stock Selection Review]] 和 [[Portfolio Risk Control]]，下一步把行业相对信号扩展到更稳定的行业权重规则。
+阅读 [[Industry Features And Relative Ranking]]、[[Industry Exposure Strategy Comparison]]、[[Industry Constraint Sensitivity]]、[[Within Sector Stock Selection Review]] 和 [[Portfolio Risk Control]]，下一步把行业相对信号扩展到更稳定的行业权重规则。

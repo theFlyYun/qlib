@@ -158,12 +158,26 @@ strategy_comparison:
       description: 原始 Top10，不限制 sector 或 industry，观察模型自然行业暴露。
       industry_constraints:
         enabled: false
-    - name: sector_capped_top10
-      output_dir_suffix: sector_capped_top10
-      description: 行业约束 Top10，限制单 sector 最多 3 只、单 industry 最多 2 只。
+    - name: sector_cap_2_top10
+      output_dir_suffix: sector_cap_2_top10
+      description: 强行业约束 Top10，限制单 sector 最多 2 只、单 industry 最多 2 只。
+      industry_constraints:
+        enabled: true
+        max_sector: 2
+        max_industry: 2
+    - name: sector_cap_3_top10
+      output_dir_suffix: sector_cap_3_top10
+      description: 中等行业约束 Top10，限制单 sector 最多 3 只、单 industry 最多 2 只。
       industry_constraints:
         enabled: true
         max_sector: 3
+        max_industry: 2
+    - name: sector_cap_4_top10
+      output_dir_suffix: sector_cap_4_top10
+      description: 宽松行业约束 Top10，限制单 sector 最多 4 只、单 industry 最多 2 只。
+      industry_constraints:
+        enabled: true
+        max_sector: 4
         max_industry: 2
     - name: sector_momentum_tilt_top10
       output_dir_suffix: sector_momentum_tilt_top10

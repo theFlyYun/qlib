@@ -149,7 +149,11 @@ exposure_by_industry.csv
 contribution_summary.yaml
 strategy_comparison.csv
 strategy_comparison_summary.yaml
-strategy_comparison/
+strategy_comparison/unconstrained_top10/
+strategy_comparison/sector_cap_2_top10/
+strategy_comparison/sector_cap_3_top10/
+strategy_comparison/sector_cap_4_top10/
+strategy_comparison/sector_momentum_tilt_top10/
 within_sector_daily_metrics.csv
 within_sector_summary.csv
 within_industry_summary.csv

@@ -303,7 +303,9 @@ def test_strategy_comparison_reuses_predictions_and_writes_variant_outputs(tmp_p
             "enabled": True,
             "variants": [
                 {"name": "unconstrained_top10", "industry_constraints": {"enabled": False}},
-                {"name": "sector_capped_top10", "industry_constraints": {"enabled": True, "max_sector": 2, "max_industry": 1}},
+                {"name": "sector_cap_2_top10", "industry_constraints": {"enabled": True, "max_sector": 2, "max_industry": 1}},
+                {"name": "sector_cap_3_top10", "industry_constraints": {"enabled": True, "max_sector": 3, "max_industry": 1}},
+                {"name": "sector_cap_4_top10", "industry_constraints": {"enabled": True, "max_sector": 4, "max_industry": 1}},
                 {
                     "name": "sector_momentum_tilt_top10",
                     "industry_constraints": {
@@ -336,10 +338,25 @@ def test_strategy_comparison_reuses_predictions_and_writes_variant_outputs(tmp_p
 
     assert summary["enabled"] is True
     comparison = pd.read_csv(paths["strategy_comparison_csv"]).set_index("name")
-    assert set(comparison.index) == {"unconstrained_top10", "sector_capped_top10", "sector_momentum_tilt_top10"}
+    assert set(comparison.index) == {
+        "unconstrained_top10",
+        "sector_cap_2_top10",
+        "sector_cap_3_top10",
+        "sector_cap_4_top10",
+        "sector_momentum_tilt_top10",
+    }
     unconstrained = pd.read_csv(paths["strategy_comparison_dir"] / "unconstrained_top10" / "backtest_positions.csv")
-    capped = pd.read_csv(paths["strategy_comparison_dir"] / "sector_capped_top10" / "backtest_positions.csv")
+    cap2 = pd.read_csv(paths["strategy_comparison_dir"] / "sector_cap_2_top10" / "backtest_positions.csv")
+    cap3 = pd.read_csv(paths["strategy_comparison_dir"] / "sector_cap_3_top10" / "backtest_positions.csv")
+    cap4 = pd.read_csv(paths["strategy_comparison_dir"] / "sector_cap_4_top10" / "backtest_positions.csv")
     tilted = pd.read_csv(paths["strategy_comparison_dir"] / "sector_momentum_tilt_top10" / "backtest_positions.csv")
     assert unconstrained["sector"].value_counts().to_dict()["Technology"] == 4
-    assert capped["sector"].value_counts().max() <= 2
+    assert cap2["sector"].value_counts().max() <= 2
+    assert cap3["sector"].value_counts().max() <= 3
+    assert cap4["sector"].value_counts().max() <= 4
+    assert comparison.loc["sector_cap_2_top10", "max_sector"] == 2
+    assert comparison.loc["sector_cap_3_top10", "max_sector"] == 3
+    assert comparison.loc["sector_cap_4_top10", "max_sector"] == 4
     assert tilted["sector"].value_counts().to_dict()["Technology"] == 3
+    assert summary["insights"]["enabled"] is True
+    assert summary["insights"]["recommended_default"]["max_sector"] in {2, 3, 4}

@@ -189,7 +189,9 @@ contribution_summary.yaml
 strategy_comparison.csv
 strategy_comparison_summary.yaml
 strategy_comparison/unconstrained_top10/
-strategy_comparison/sector_capped_top10/
+strategy_comparison/sector_cap_2_top10/
+strategy_comparison/sector_cap_3_top10/
+strategy_comparison/sector_cap_4_top10/
 strategy_comparison/sector_momentum_tilt_top10/
 ```
 
@@ -197,11 +199,13 @@ strategy_comparison/sector_momentum_tilt_top10/
 
 ```text
 unconstrained_top10：累计收益 24.77%，年化收益 9.91%，超额累计收益 -30.21%
-sector_capped_top10：累计收益 76.79%，年化收益 27.55%，超额累计收益 -1.11%
+sector_cap_2_top10：累计收益 62.84%，年化收益 23.15%，超额累计收益 -8.92%，Sector HHI 0.176
+sector_cap_3_top10：累计收益 76.79%，年化收益 27.55%，超额累计收益 -1.11%，Sector HHI 0.231
+sector_cap_4_top10：累计收益 52.19%，年化收益 19.65%，超额累计收益 -14.87%，Sector HHI 0.266
 sector_momentum_tilt_top10：累计收益 67.91%，年化收益 24.78%，超额累计收益 -6.08%
 ```
 
-当前判断：适度限制行业集中度后，组合表现更稳；行业动量增强这轮弱于普通行业约束，说明简单 60 日行业动量还不能证明稳定有效。
+当前判断：`max_sector=3` 在本次实验里年化收益和超额收益最好；`max_sector=2` 回撤和行业集中度更低但收益略弱；`max_sector=4` 偏松。当前默认保留 `max_sector=3`、`max_industry=2`。
 
 该配置还会生成行业内选股复盘，检查模型在同一个 sector 内能否把未来收益更好的股票排到前面：
 

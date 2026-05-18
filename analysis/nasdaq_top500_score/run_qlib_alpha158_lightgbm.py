@@ -664,7 +664,12 @@ def run_strategy_comparison(
 
     frame = pd.DataFrame(rows)
     frame.to_csv(paths["strategy_comparison_csv"], index=False)
-    summary = {"enabled": True, "rows": rows, "variants": variant_summaries}
+    summary = {
+        "enabled": True,
+        "rows": rows,
+        "variants": variant_summaries,
+        "insights": build_strategy_comparison_insights(rows),
+    }
     paths["strategy_comparison_summary"].write_text(
         yaml.safe_dump(summary, allow_unicode=True, sort_keys=False),
         encoding="utf-8",
@@ -736,6 +741,8 @@ def summarize_strategy_variant(
         "output_dir": str(variant_paths["output_dir"]),
         "industry_constraints_enabled": bool(constraints.get("enabled", False)),
         "sector_momentum_tilt_enabled": bool(constraints.get("sector_momentum_tilt", {}).get("enabled", False)),
+        "max_sector": constraints.get("max_sector"),
+        "max_industry": constraints.get("max_industry"),
         "period_count": summary.get("period_count"),
         "cumulative_return": summary.get("cumulative_return"),
         "annualized_return": summary.get("annualized_return"),
@@ -754,6 +761,103 @@ def summarize_strategy_variant(
         "max_sector_weight_any_period": concentration.get("max_sector_weight_any_period"),
         "avg_sector_hhi": concentration.get("avg_sector_hhi"),
     }
+
+
+def build_strategy_comparison_insights(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    sensitivity_rows = [row for row in rows if is_sector_cap_sensitivity_row(row)]
+    if not sensitivity_rows:
+        return {"enabled": False}
+
+    return {
+        "enabled": True,
+        "best_annualized_return": metric_leader(sensitivity_rows, "annualized_return", higher_is_better=True),
+        "best_max_drawdown": metric_leader(sensitivity_rows, "max_drawdown", higher_is_better=True),
+        "best_excess_cumulative_return": metric_leader(sensitivity_rows, "excess_cumulative_return", higher_is_better=True),
+        "lowest_sector_concentration": metric_leader(sensitivity_rows, "avg_sector_hhi", higher_is_better=False),
+        "recommended_default": recommend_sector_cap(sensitivity_rows),
+    }
+
+
+def is_sector_cap_sensitivity_row(row: dict[str, Any]) -> bool:
+    name = str(row.get("name", ""))
+    if name in {"sector_cap_2_top10", "sector_cap_3_top10", "sector_cap_4_top10"}:
+        return True
+    return (
+        bool(row.get("industry_constraints_enabled"))
+        and not bool(row.get("sector_momentum_tilt_enabled"))
+        and pd.notna(row.get("max_sector"))
+    )
+
+
+def metric_leader(rows: list[dict[str, Any]], key: str, higher_is_better: bool) -> dict[str, Any]:
+    usable = [row for row in rows if pd.notna(row.get(key))]
+    if not usable:
+        return {}
+    best = max(usable, key=lambda row: float(row[key])) if higher_is_better else min(usable, key=lambda row: float(row[key]))
+    return metric_record(best, key)
+
+
+def recommend_sector_cap(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    metrics = [
+        ("annualized_return", True),
+        ("excess_cumulative_return", True),
+        ("max_drawdown", True),
+        ("avg_sector_hhi", False),
+    ]
+    scored = []
+    for row in rows:
+        score = 0
+        for metric, higher_is_better in metrics:
+            ordered = sorted(
+                [candidate for candidate in rows if pd.notna(candidate.get(metric))],
+                key=lambda candidate: float(candidate[metric]),
+                reverse=higher_is_better,
+            )
+            ranks = {candidate["name"]: rank + 1 for rank, candidate in enumerate(ordered)}
+            score += ranks.get(row["name"], len(rows) + 1)
+        scored.append((score, sector_cap_tie_breaker(row), row))
+
+    if not scored:
+        return {}
+    _, _, selected = min(scored, key=lambda item: (item[0], item[1]))
+    record = metric_record(selected, "balanced_rank_score")
+    record["balanced_rank_score"] = int(min(scored, key=lambda item: (item[0], item[1]))[0])
+    record["reason"] = "综合年化收益、超额收益、最大回撤和行业集中度排名，平局时优先选择中等约束。"
+    return record
+
+
+def sector_cap_tie_breaker(row: dict[str, Any]) -> int:
+    preferred_order = {3: 0, 2: 1, 4: 2}
+    try:
+        return preferred_order.get(int(row.get("max_sector")), 99)
+    except (TypeError, ValueError):
+        return 99
+
+
+def metric_record(row: dict[str, Any], metric: str) -> dict[str, Any]:
+    return {
+        "name": row.get("name"),
+        "max_sector": normalize_report_scalar(row.get("max_sector")),
+        "max_industry": normalize_report_scalar(row.get("max_industry")),
+        "metric": metric,
+        "value": normalize_report_scalar(row.get(metric)),
+        "annualized_return": normalize_report_scalar(row.get("annualized_return")),
+        "max_drawdown": normalize_report_scalar(row.get("max_drawdown")),
+        "excess_cumulative_return": normalize_report_scalar(row.get("excess_cumulative_return")),
+        "alpha_annualized": normalize_report_scalar(row.get("alpha_annualized")),
+        "avg_sector_hhi": normalize_report_scalar(row.get("avg_sector_hhi")),
+    }
+
+
+def normalize_report_scalar(value: Any) -> Any:
+    if pd.isna(value):
+        return None
+    if isinstance(value, (bool, int, str)):
+        return value
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return value
 
 
 def sector_concentration_stats(positions: pd.DataFrame) -> dict[str, Any]:
@@ -864,6 +968,24 @@ def fmt_delta_pct(value: Any) -> str:
     return f"{sign}{numeric:.2%}"
 
 
+def fmt_delta_number(value: Any, digits: int = 3) -> str:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return "N/A"
+    if math.isnan(numeric):
+        return "N/A"
+    sign = "+" if numeric >= 0 else ""
+    return f"{sign}{numeric:.{digits}f}"
+
+
+def fmt_optional_int(value: Any) -> str:
+    try:
+        return str(int(value))
+    except (TypeError, ValueError):
+        return "N/A"
+
+
 def metric_delta(left: dict[str, Any], right: dict[str, Any], key: str) -> float:
     try:
         return float(left.get(key)) - float(right.get(key))
@@ -879,15 +1001,16 @@ def strategy_comparison_report_lines(summary: dict[str, Any]) -> list[str]:
         return ["- 已启用，但没有生成策略对照结果。"]
 
     lines = [
-        "| Variant | 规则 | 累计收益 | 年化收益 | 最大回撤 | 超额累计收益 | 年化 Alpha | Beta | 最大平均 sector 暴露 | Sector HHI |",
-        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| Variant | 规则 | Max Sector | 累计收益 | 年化收益 | 最大回撤 | 超额累计收益 | 年化 Alpha | Beta | 最大平均 sector 暴露 | Sector HHI |",
+        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for row in rows:
         rule = "行业增强" if row.get("sector_momentum_tilt_enabled") else "行业约束" if row.get("industry_constraints_enabled") else "不限制行业"
         lines.append(
-            "| {name} | {rule} | {cum} | {ann} | {dd} | {excess} | {alpha} | {beta} | {sector} {sector_weight} | {hhi} |".format(
+            "| {name} | {rule} | {max_sector} | {cum} | {ann} | {dd} | {excess} | {alpha} | {beta} | {sector} {sector_weight} | {hhi} |".format(
                 name=row.get("name", "N/A"),
                 rule=rule,
+                max_sector=fmt_optional_int(row.get("max_sector")),
                 cum=fmt_pct(row.get("cumulative_return")),
                 ann=fmt_pct(row.get("annualized_return")),
                 dd=fmt_pct(row.get("max_drawdown")),
@@ -902,21 +1025,57 @@ def strategy_comparison_report_lines(summary: dict[str, Any]) -> list[str]:
 
     by_name = {row.get("name"): row for row in rows}
     unconstrained = by_name.get("unconstrained_top10")
-    capped = by_name.get("sector_capped_top10")
+    cap2 = by_name.get("sector_cap_2_top10")
+    cap3 = by_name.get("sector_cap_3_top10") or by_name.get("sector_capped_top10")
+    cap4 = by_name.get("sector_cap_4_top10")
     tilted = by_name.get("sector_momentum_tilt_top10")
     lines.extend(["", "对照解读："])
-    if unconstrained and capped:
+    if unconstrained and cap3:
         lines.append(
-            f"- 行业约束相对原始 Top10 的年化收益变化：{fmt_delta_pct(metric_delta(capped, unconstrained, 'annualized_return'))}；超额累计收益变化：{fmt_delta_pct(metric_delta(capped, unconstrained, 'excess_cumulative_return'))}。"
+            f"- max_sector=3 相对原始 Top10 的年化收益变化：{fmt_delta_pct(metric_delta(cap3, unconstrained, 'annualized_return'))}；超额累计收益变化：{fmt_delta_pct(metric_delta(cap3, unconstrained, 'excess_cumulative_return'))}。"
         )
-    if capped and tilted:
+    if cap2 and cap3:
         lines.append(
-            f"- 行业增强相对行业约束的年化收益变化：{fmt_delta_pct(metric_delta(tilted, capped, 'annualized_return'))}；超额累计收益变化：{fmt_delta_pct(metric_delta(tilted, capped, 'excess_cumulative_return'))}。"
+            f"- max_sector=2 相对 max_sector=3 的年化收益变化：{fmt_delta_pct(metric_delta(cap2, cap3, 'annualized_return'))}；Sector HHI 变化：{fmt_delta_number(metric_delta(cap2, cap3, 'avg_sector_hhi'))}。"
         )
+    if cap4 and cap3:
+        lines.append(
+            f"- max_sector=4 相对 max_sector=3 的年化收益变化：{fmt_delta_pct(metric_delta(cap4, cap3, 'annualized_return'))}；Sector HHI 变化：{fmt_delta_number(metric_delta(cap4, cap3, 'avg_sector_hhi'))}。"
+        )
+    if cap3 and tilted:
+        lines.append(
+            f"- 行业增强相对 max_sector=3 的年化收益变化：{fmt_delta_pct(metric_delta(tilted, cap3, 'annualized_return'))}；超额累计收益变化：{fmt_delta_pct(metric_delta(tilted, cap3, 'excess_cumulative_return'))}。"
+        )
+    insights = summary.get("insights", {})
+    if insights.get("enabled", False):
+        lines.extend(["", "行业约束参数敏感性：", *strategy_insight_report_lines(insights)])
     lines.append(
         "- 判断口径：如果行业约束后收益明显下降，原策略更像行业押注；如果约束后仍稳定，模型更可能有行业内选股能力；如果行业增强最好，说明行业趋势和个股精选可能都值得保留。"
     )
     return lines
+
+
+def strategy_insight_report_lines(insights: dict[str, Any]) -> list[str]:
+    return [
+        f"- 年化收益最高：{format_strategy_insight(insights.get('best_annualized_return'))}",
+        f"- 最大回撤最小：{format_strategy_insight(insights.get('best_max_drawdown'))}",
+        f"- 超额收益最好：{format_strategy_insight(insights.get('best_excess_cumulative_return'))}",
+        f"- 行业集中度最低：{format_strategy_insight(insights.get('lowest_sector_concentration'))}",
+        f"- 推荐默认约束：{format_strategy_insight(insights.get('recommended_default'))}",
+    ]
+
+
+def format_strategy_insight(record: dict[str, Any] | None) -> str:
+    if not record:
+        return "N/A"
+    return (
+        f"{record.get('name', 'N/A')} "
+        f"(max_sector={fmt_optional_int(record.get('max_sector'))}, "
+        f"年化={fmt_pct(record.get('annualized_return'))}, "
+        f"最大回撤={fmt_pct(record.get('max_drawdown'))}, "
+        f"超额={fmt_pct(record.get('excess_cumulative_return'))}, "
+        f"HHI={fmt_number(record.get('avg_sector_hhi'), 3)})"
+    )
 
 
 def within_sector_report_lines(summary: dict[str, Any]) -> list[str]:

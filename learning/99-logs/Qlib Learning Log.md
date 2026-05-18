@@ -277,7 +277,7 @@
 ## 2026-05-18 行业暴露对照实验
 
 - 学习主题：拆开验证“行业押注”和“个股选择”，判断行业暴露是否应该被限制或显式利用。
-- 当前动作：新增 `strategy_comparison`，同一批测试期模型预测分数只改变 Top10 选股规则，分别运行 `unconstrained_top10`、`sector_capped_top10` 和 `sector_momentum_tilt_top10`。
+- 当前动作：新增 `strategy_comparison`，同一批测试期模型预测分数只改变 Top10 选股规则，分别运行 `unconstrained_top10`、`sector_cap_3_top10` 和 `sector_momentum_tilt_top10`。
 - 实验口径：as-of 2023-12-31 近似冻结 Nasdaq Top500；测试期 `2024-01-02` 到 `2026-05-15`；未来 5 日收益标签；每 5 个交易日调仓；单边成本 10 bps；基准为 `NASDAQCOM`。
 - 原始 Top10：累计收益 `24.77%`，年化收益 `9.91%`，最大回撤 `-31.47%`，超额累计收益 `-30.21%`，年化 alpha `-14.17%`。
 - 行业约束 Top10：累计收益 `76.79%`，年化收益 `27.55%`，最大回撤 `-29.58%`，超额累计收益 `-1.11%`，年化 alpha `1.87%`。
@@ -300,6 +300,21 @@
 - 下一步：做 `max_sector=2/3/4` 参数敏感性，并对 Technology、Health Care、Consumer Discretionary 做 sector-specific 错误复盘。
 
 详细笔记：[[Within Sector Stock Selection Review]]
+
+## 2026-05-18 行业约束参数敏感性
+
+- 学习主题：比较 `max_sector=2/3/4` 的行业约束强度，判断当前 Top10 组合应该允许单个 sector 最多持仓几只。
+- 当前动作：把 frozen 配置中的 `strategy_comparison` 扩展为 `unconstrained_top10`、`sector_cap_2_top10`、`sector_cap_3_top10`、`sector_cap_4_top10` 和 `sector_momentum_tilt_top10`；同一批模型分数只改变最后选股约束。
+- 实验口径：as-of 2023-12-31 近似冻结 Nasdaq Top500；测试期 `2024-01-02` 到 `2026-05-15`；未来 5 日收益标签；每 5 个交易日调仓；单边成本 10 bps；基准为 `NASDAQCOM`。
+- 不限制 Top10：累计收益 `24.77%`，年化收益 `9.91%`，最大回撤 `-31.47%`，超额累计收益 `-30.21%`，Sector HHI `0.312`。
+- `max_sector=2`：累计收益 `62.84%`，年化收益 `23.15%`，最大回撤 `-27.38%`，超额累计收益 `-8.92%`，Sector HHI `0.176`。
+- `max_sector=3`：累计收益 `76.79%`，年化收益 `27.55%`，最大回撤 `-29.58%`，超额累计收益 `-1.11%`，Sector HHI `0.231`。
+- `max_sector=4`：累计收益 `52.19%`，年化收益 `19.65%`，最大回撤 `-31.05%`，超额累计收益 `-14.87%`，Sector HHI `0.266`。
+- 行业动量增强：累计收益 `67.91%`，年化收益 `24.78%`，最大回撤 `-30.71%`，超额累计收益 `-6.08%`，Sector HHI `0.244`。
+- 当前判断：`max_sector=3` 年化收益和超额收益最好，`max_sector=2` 回撤和行业集中度最好但收益偏保守，`max_sector=4` 偏松。当前默认保留 `max_sector=3`、`max_industry=2`。
+- 下一步：对 Technology、Health Care、Consumer Discretionary 做 sector-specific 错误复盘，解释为什么模型在某些行业内排序偏弱。
+
+详细笔记：[[Industry Constraint Sensitivity]]
 
 ## 复盘原则
 
