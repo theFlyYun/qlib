@@ -134,6 +134,16 @@ export SEC_EDGAR_USER_AGENT="Your Name your-email@example.com"
   --config analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_lgbm_10y_frozen_2023_top500_5d_pit_safe.yaml
 ```
 
+该配置已启用 `NASDAQCOM` 基准复盘，输出：
+
+```text
+backtest_nav.csv
+backtest_summary.yaml
+benchmark_prices.csv
+benchmark_summary.yaml
+report.md
+```
+
 运行真实 EDGAR smoke test 前先设置 User-Agent：
 
 ```bash

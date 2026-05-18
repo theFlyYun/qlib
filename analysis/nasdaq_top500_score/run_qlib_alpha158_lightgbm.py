@@ -144,6 +144,7 @@ def validate_config(config: dict[str, Any]) -> None:
     validate_industry_constraints(config)
     validate_liquidity_filter(config)
     validate_backtest(config)
+    validate_benchmark(config)
 
 
 def validate_universe_selection(config: dict[str, Any]) -> None:
@@ -239,6 +240,21 @@ def validate_backtest(config: dict[str, Any]) -> None:
         raise ValueError("backtest.point_in_time_filters.min_history_rows must be positive")
 
 
+def validate_benchmark(config: dict[str, Any]) -> None:
+    benchmark = config.get("benchmark", {})
+    if not benchmark or not benchmark.get("enabled", False):
+        return
+    if not config.get("backtest", {}).get("enabled", False):
+        raise ValueError("enabled benchmark requires backtest.enabled: true")
+    source = benchmark.get("source", "nasdaq_public")
+    if source not in {"nasdaq_public", "fred", "csv"}:
+        raise ValueError("benchmark.source must be nasdaq_public, fred, or csv")
+    if source == "csv" and not benchmark.get("path"):
+        raise ValueError("benchmark.source=csv requires benchmark.path")
+    if not benchmark.get("symbol"):
+        raise ValueError("enabled benchmark requires benchmark.symbol")
+
+
 def date_value(value: Any) -> pd.Timestamp:
     if isinstance(value, str) and value == "latest":
         return pd.Timestamp.today().normalize()
@@ -294,6 +310,8 @@ def build_paths(config: dict[str, Any]) -> dict[str, Path]:
         "backtest_nav_csv": output_dir / "backtest_nav.csv",
         "backtest_positions_csv": output_dir / "backtest_positions.csv",
         "backtest_summary": output_dir / "backtest_summary.yaml",
+        "benchmark_prices_csv": output_dir / "benchmark_prices.csv",
+        "benchmark_summary": output_dir / "benchmark_summary.yaml",
         "report_md": output_dir / "report.md",
         "resolved_config": output_dir / "resolved_config.yaml",
     }
@@ -650,6 +668,7 @@ def write_report(
         else {}
     )
     backtest_summary = meta.get("backtest_summary", {})
+    benchmark_summary = backtest_summary.get("benchmark", {})
     lines = [
         f"# {config['experiment']['name']} Report",
         "",
@@ -831,6 +850,37 @@ def write_report(
                 else ["- 未启用。"]
             ),
             "",
+            "## 基准与超额收益",
+            "",
+            *(
+                [
+                    "- 基准复盘：已启用。",
+                    f"- 基准：{benchmark_summary.get('symbol', 'N/A')} / {benchmark_summary.get('name', 'N/A')}",
+                    f"- 对齐回测期数：{benchmark_summary.get('period_count', 0)}",
+                    f"- 策略累计收益：{fmt_pct(benchmark_summary.get('strategy_cumulative_return'))}",
+                    f"- 基准累计收益：{fmt_pct(benchmark_summary.get('benchmark_cumulative_return'))}",
+                    f"- 超额累计收益：{fmt_pct(benchmark_summary.get('excess_cumulative_return'))}",
+                    f"- 基准年化收益：{fmt_pct(benchmark_summary.get('benchmark_annualized_return'))}",
+                    f"- 基准年化波动：{fmt_pct(benchmark_summary.get('benchmark_annualized_volatility'))}",
+                    f"- 基准最大回撤：{fmt_pct(benchmark_summary.get('benchmark_max_drawdown'))}",
+                    f"- 跟踪误差：{fmt_pct(benchmark_summary.get('tracking_error'))}",
+                    f"- 相对信息比率：{fmt_number(benchmark_summary.get('relative_information_ratio'), 3)}",
+                    f"- Beta：{fmt_number(benchmark_summary.get('beta'), 3)}",
+                    f"- 年化 Alpha：{fmt_pct(benchmark_summary.get('alpha_annualized'))}",
+                    f"- 策略/基准相关性：{fmt_number(benchmark_summary.get('correlation'), 3)}",
+                    f"- 相对最大回撤：{fmt_pct(benchmark_summary.get('relative_max_drawdown'))}",
+                    f"- 跑赢基准期数占比：{fmt_pct(benchmark_summary.get('win_rate_vs_benchmark'))}",
+                    "",
+                    "基准复盘使用与策略相同的入场日和退出日计算同期收益。当前基准价格不是专业总回报复权指数口径，因此它适合学习比较，不等同于生产级绩效归因。",
+                ]
+                if benchmark_summary.get("enabled", False) and "error" not in benchmark_summary
+                else [
+                    f"- 基准复盘未生成：{benchmark_summary.get('error', '未启用。')}"
+                    if benchmark_summary
+                    else "- 未启用。"
+                ]
+            ),
+            "",
             "## 流动性过滤",
             "",
             *(
@@ -917,6 +967,8 @@ def write_report(
             "- `backtest_nav.csv`：TopK 成本后回测每期净值、收益、换手和成本。",
             "- `backtest_positions.csv`：每个回测期实际持仓、权重、入场价、退出价和单票收益。",
             "- `backtest_summary.yaml`：回测汇总指标。",
+            "- `benchmark_prices.csv`：基准资产价格数据；仅启用基准复盘时生成有效内容。",
+            "- `benchmark_summary.yaml`：基准、超额收益、alpha/beta 和跟踪误差摘要。",
             "- `report.md`：本报告。",
             "- `resolved_config.yaml`：本次实际使用配置，复盘时优先看它。",
             "- `qlib_source_csv/`：逐股票原始日线 CSV。",

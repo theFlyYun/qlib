@@ -36,6 +36,8 @@ def test_topk_backtest_uses_signal_entry_exit_costs_and_writes_outputs(tmp_path:
     write_price_csv(source_dir, "AAA", dates, [10, 10, 10.5, 11, 11, 11, 11, 11, 11, 11])
     write_price_csv(source_dir, "BBB", dates, [20, 20, 20, 20, 20, 20, 20, 20, 20, 20])
     write_price_csv(source_dir, "CCC", dates, [30, 30, 30, 29, 29, 29, 29, 29, 29, 29])
+    benchmark_csv = tmp_path / "benchmark_QQQ.csv"
+    write_price_csv(benchmark_csv.parent, "benchmark_QQQ", dates, [100, 100, 101, 102, 102, 102, 102, 102, 102, 102])
 
     pd.DataFrame(
         [
@@ -79,6 +81,13 @@ def test_topk_backtest_uses_signal_entry_exit_costs_and_writes_outputs(tmp_path:
             "cost_bps": 10,
             "min_positions": 1,
         },
+        "benchmark": {
+            "enabled": True,
+            "source": "csv",
+            "path": str(benchmark_csv),
+            "symbol": "QQQ",
+            "name": "Invesco QQQ Trust",
+        },
     }
     paths = {
         "source_dir": source_dir,
@@ -87,6 +96,7 @@ def test_topk_backtest_uses_signal_entry_exit_costs_and_writes_outputs(tmp_path:
         "backtest_nav_csv": tmp_path / "backtest_nav.csv",
         "backtest_positions_csv": tmp_path / "backtest_positions.csv",
         "backtest_summary": tmp_path / "backtest_summary.yaml",
+        "benchmark_summary": tmp_path / "benchmark_summary.yaml",
     }
 
     result = run_topk_backtest(predictions, universe, config, paths)
@@ -97,8 +107,12 @@ def test_topk_backtest_uses_signal_entry_exit_costs_and_writes_outputs(tmp_path:
     assert math.isclose(float(result.nav.iloc[0]["gross_return"]), 0.05, rel_tol=0, abs_tol=1e-9)
     assert math.isclose(float(result.nav.iloc[0]["cost_return"]), 0.001, rel_tol=0, abs_tol=1e-9)
     assert math.isclose(float(result.nav.iloc[0]["net_return"]), 0.049, rel_tol=0, abs_tol=1e-9)
+    assert math.isclose(float(result.nav.iloc[0]["benchmark_return"]), 0.02, rel_tol=0, abs_tol=1e-9)
+    assert math.isclose(float(result.nav.iloc[0]["excess_return"]), 0.029, rel_tol=0, abs_tol=1e-9)
+    assert result.summary["benchmark"]["symbol"] == "QQQ"
     assert paths["backtest_nav_csv"].exists()
     assert paths["backtest_positions_csv"].exists()
+    assert paths["benchmark_summary"].exists()
     summary = yaml.safe_load(paths["backtest_summary"].read_text(encoding="utf-8"))
     assert summary["period_count"] == result.summary["period_count"]
 

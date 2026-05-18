@@ -295,6 +295,114 @@ learning/99-logs/Qlib Learning Log.md
 learning/99-logs/Stage Completion Records.md
 ```
 
+## 2026-05-18 第 5.3 条：基准与超额收益复盘
+
+目标：
+
+判断 as-of 冻结股票池后的 Top10 策略是否真正跑赢市场。
+
+为什么要做：
+
+策略有绝对收益不代表有 alpha。2024-2026 纳斯达克本身上涨明显，如果不和基准比较，就无法判断收益来自模型能力，还是来自市场 beta。
+
+输入数据：
+
+```text
+策略回测：nasdaq_alpha158_edgar_lgbm_10y_frozen_2023_top500_5d_pit_safe
+策略入场/退出窗口：来自 backtest_nav.csv
+基准：FRED NASDAQCOM
+比较方式：每个策略持有窗口内，同步计算基准收益
+```
+
+核心概念：
+
+```text
+基准收益：同一入场/退出日期的 NASDAQCOM 收益
+超额收益：策略收益 - 基准收益
+超额累计收益：策略净值 / 基准净值 - 1
+Beta：策略对市场的敏感度
+Alpha：扣除 beta 后的剩余年化收益
+跟踪误差：超额收益的波动
+相对信息比率：平均超额收益 / 超额收益波动
+```
+
+实验动作：
+
+```text
+新增 benchmark 配置
+新增 FRED NASDAQCOM 下载与缓存
+在 backtest_nav.csv 中追加 benchmark_return、excess_return、benchmark_nav、relative_nav
+输出 benchmark_prices.csv 和 benchmark_summary.yaml
+report.md 新增基准与超额收益章节
+新增 Benchmark And Excess Return Review 学习文档
+```
+
+评价指标：
+
+```text
+策略累计收益
+基准累计收益
+超额累计收益
+基准最大回撤
+跟踪误差
+相对信息比率
+Beta
+年化 Alpha
+策略/基准相关性
+跑赢基准期数占比
+```
+
+结果解读：
+
+```text
+策略累计收益：26.41%
+策略年化收益：10.53%
+策略最大回撤：-31.60%
+NASDAQCOM 基准累计收益：78.78%
+NASDAQCOM 基准年化收益：28.17%
+NASDAQCOM 基准最大回撤：-22.66%
+超额累计收益：-29.30%
+Beta：1.092
+年化 Alpha：-12.25%
+相对信息比率：-0.319
+跑赢基准期数占比：49.15%
+```
+
+当前判断：
+
+```text
+冻结股票池后的策略有绝对收益。
+但它没有跑赢纳斯达克综合指数。
+当前模型还不能证明有稳定 alpha。
+```
+
+遗留问题：
+
+```text
+NASDAQCOM 不是总回报指数
+仍缺少退市股票和真实历史市值
+没有拆分行业暴露和个股贡献
+没有计算相对基准的行业/风格风险
+成本模型仍是固定 10 bps
+```
+
+下一阶段准备：
+
+进入持仓贡献和行业暴露复盘。先回答收益和亏损来自哪些股票、哪些行业，再考虑行业中性 TopK 或行业内排名。
+
+产出文件：
+
+```text
+analysis/nasdaq_top500_score/backtest.py
+analysis/nasdaq_top500_score/run_qlib_alpha158_lightgbm.py
+analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_lgbm_10y_frozen_2023_top500_5d_pit_safe.yaml
+tests/analysis/test_topk_backtest.py
+learning/04-strategy-backtest/Benchmark And Excess Return Review.md
+learning/00-start-here/Qlib Commands.md
+learning/99-logs/Qlib Learning Log.md
+learning/99-logs/Stage Completion Records.md
+```
+
 ## 2026-05-17 阶段 E：数据口径升级
 
 目标：

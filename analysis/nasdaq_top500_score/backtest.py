@@ -3,18 +3,24 @@
 from __future__ import annotations
 
 import math
+import io
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
+import requests
 import yaml
 
 try:
+    from .data_sources.base import parse_float
+    from .data_sources.nasdaq_public import NASDAQ_HISTORICAL_URL, fetch_json, nasdaq_history_window
     from .selection import select_bucketed_top
     from .selection.history_buckets import assign_history_bucket
     from .selection.liquidity import liquidity_exclusion_reason
 except ImportError:  # pragma: no cover - supports running the pipeline as a script.
+    from data_sources.base import parse_float
+    from data_sources.nasdaq_public import NASDAQ_HISTORICAL_URL, fetch_json, nasdaq_history_window
     from selection import select_bucketed_top
     from selection.history_buckets import assign_history_bucket
     from selection.liquidity import liquidity_exclusion_reason
@@ -136,6 +142,9 @@ def run_topk_backtest(
     nav_frame = pd.DataFrame(period_rows)
     positions = pd.DataFrame(position_rows)
     summary = summarize_backtest(nav_frame, positions, backtest_config, skipped_periods)
+    nav_frame, benchmark_summary = attach_benchmark(nav_frame, config, paths, price_column)
+    if benchmark_summary:
+        summary["benchmark"] = benchmark_summary
     result = BacktestResult(nav=nav_frame, positions=positions, summary=summary)
     write_backtest_outputs(result, paths)
     return result
@@ -342,6 +351,204 @@ def price_matrix_from_market_data(market_data: dict[str, pd.DataFrame]) -> pd.Da
     return pd.DataFrame({symbol: frame["execution_price"] for symbol, frame in market_data.items()}).sort_index()
 
 
+def attach_benchmark(
+    nav: pd.DataFrame,
+    config: dict[str, Any],
+    paths: dict[str, Path],
+    price_column: str,
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    benchmark_config = config.get("benchmark", {})
+    if nav.empty or not benchmark_config.get("enabled", False):
+        return nav, {}
+
+    benchmark_prices = load_benchmark_prices(config, paths, price_column)
+    if benchmark_prices.empty:
+        return nav, {
+            "enabled": True,
+            "error": "missing_benchmark_prices",
+            "config": benchmark_config,
+        }
+
+    enriched = nav.copy()
+    benchmark_returns = []
+    for row in enriched.itertuples(index=False):
+        entry_date = pd.Timestamp(row.entry_date).normalize()
+        exit_date = pd.Timestamp(row.exit_date).normalize()
+        if entry_date not in benchmark_prices.index or exit_date not in benchmark_prices.index:
+            benchmark_returns.append(math.nan)
+            continue
+        entry_price = benchmark_prices.loc[entry_date]
+        exit_price = benchmark_prices.loc[exit_date]
+        if pd.isna(entry_price) or pd.isna(exit_price) or float(entry_price) <= 0:
+            benchmark_returns.append(math.nan)
+            continue
+        benchmark_returns.append(float(exit_price) / float(entry_price) - 1.0)
+
+    enriched["benchmark_return"] = benchmark_returns
+    enriched["excess_return"] = enriched["net_return"] - enriched["benchmark_return"]
+    enriched["benchmark_nav"] = (1.0 + enriched["benchmark_return"].fillna(0.0)).cumprod()
+    enriched["relative_nav"] = enriched["nav"] / enriched["benchmark_nav"]
+    summary = summarize_benchmark(enriched, config, benchmark_config)
+    return enriched, summary
+
+
+def load_benchmark_prices(config: dict[str, Any], paths: dict[str, Path], price_column: str) -> pd.Series:
+    benchmark_config = config.get("benchmark", {})
+    source = benchmark_config.get("source", "nasdaq_public")
+    if source == "csv":
+        path = Path(benchmark_config["path"]).expanduser()
+        if not path.is_absolute():
+            path = Path.cwd() / path
+    elif source == "nasdaq_public":
+        path = paths["benchmark_prices_csv"]
+        if benchmark_config.get("refresh", False) or not path.exists():
+            download_nasdaq_benchmark_prices(config, benchmark_config, path)
+    elif source == "fred":
+        path = paths["benchmark_prices_csv"]
+        if benchmark_config.get("refresh", False) or not path.exists():
+            download_fred_benchmark_prices(config, benchmark_config, path)
+    else:
+        raise ValueError("benchmark.source must be csv, fred, or nasdaq_public")
+
+    if not path.exists():
+        return pd.Series(dtype=float)
+    frame = pd.read_csv(path)
+    if price_column not in frame.columns:
+        price_column = "close"
+    frame["date"] = pd.to_datetime(frame["date"], errors="coerce").dt.normalize()
+    frame[price_column] = pd.to_numeric(frame[price_column], errors="coerce")
+    frame = frame.dropna(subset=["date", price_column]).sort_values("date")
+    return frame.set_index("date")[price_column]
+
+
+def download_nasdaq_benchmark_prices(config: dict[str, Any], benchmark_config: dict[str, Any], output_path: Path) -> None:
+    symbol = str(benchmark_config.get("symbol", "QQQ")).upper()
+    asset_class = str(benchmark_config.get("asset_class", "etf"))
+    from_date, to_date = nasdaq_history_window(config["data"])
+    data = fetch_json(
+        NASDAQ_HISTORICAL_URL.format(symbol=symbol),
+        params={
+            "assetclass": asset_class,
+            "fromdate": from_date,
+            "todate": to_date,
+            "limit": "9999",
+        },
+        referer=f"https://www.nasdaq.com/market-activity/{asset_class}/{symbol.lower()}/historical",
+    )
+    rows = data.get("data", {}).get("tradesTable", {}).get("rows") or []
+    parsed = []
+    for row in rows:
+        date = pd.to_datetime(row.get("date"), format="%m/%d/%Y", errors="coerce")
+        open_ = parse_float(row.get("open"))
+        high = parse_float(row.get("high"))
+        low = parse_float(row.get("low"))
+        close = parse_float(row.get("close"))
+        volume = parse_float(row.get("volume"))
+        if pd.isna(date) or any(pd.isna(value) for value in [open_, high, low, close, volume]):
+            continue
+        parsed.append(
+            {
+                "date": date.date().isoformat(),
+                "symbol": symbol,
+                "open": open_,
+                "high": high,
+                "low": low,
+                "close": close,
+                "vwap": (open_ + high + low + close) / 4,
+                "volume": volume,
+            }
+        )
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(parsed).sort_values("date").to_csv(output_path, index=False)
+
+
+def download_fred_benchmark_prices(config: dict[str, Any], benchmark_config: dict[str, Any], output_path: Path) -> None:
+    series_id = str(benchmark_config.get("series_id", benchmark_config.get("symbol", "NASDAQCOM"))).upper()
+    from_date, to_date = nasdaq_history_window(config["data"])
+    url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
+    response = requests.get(url, timeout=30)
+    response.raise_for_status()
+    frame = pd.read_csv(io.StringIO(response.text))
+    value_column = series_id if series_id in frame.columns else frame.columns[-1]
+    frame = frame.rename(columns={"observation_date": "date", value_column: "close"})
+    frame["date"] = pd.to_datetime(frame["date"], errors="coerce").dt.normalize()
+    frame["close"] = pd.to_numeric(frame["close"].replace(".", pd.NA), errors="coerce")
+    frame = frame.dropna(subset=["date", "close"])
+    frame = frame[(frame["date"] >= pd.Timestamp(from_date)) & (frame["date"] <= pd.Timestamp(to_date))].copy()
+    frame["symbol"] = series_id
+    frame["open"] = frame["close"]
+    frame["high"] = frame["close"]
+    frame["low"] = frame["close"]
+    frame["vwap"] = frame["close"]
+    frame["volume"] = pd.NA
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    frame[["date", "symbol", "open", "high", "low", "close", "vwap", "volume"]].to_csv(output_path, index=False)
+
+
+def summarize_benchmark(
+    nav: pd.DataFrame,
+    config: dict[str, Any],
+    benchmark_config: dict[str, Any],
+) -> dict[str, Any]:
+    valid = nav.dropna(subset=["benchmark_return", "excess_return"]).copy()
+    if valid.empty:
+        return {
+            "enabled": True,
+            "error": "no_overlapping_benchmark_periods",
+            "config": benchmark_config,
+        }
+
+    periods_per_year = float(config["backtest"].get("periods_per_year", 252 / int(config["backtest"]["rebalance_days"])))
+    benchmark_returns = valid["benchmark_return"].astype(float)
+    strategy_returns = valid["net_return"].astype(float)
+    excess_returns = valid["excess_return"].astype(float)
+    benchmark_cumulative_return = float((1.0 + benchmark_returns).prod() - 1.0)
+    strategy_cumulative_return = float((1.0 + strategy_returns).prod() - 1.0)
+    excess_cumulative_return = float(valid["relative_nav"].iloc[-1] - 1.0)
+    benchmark_volatility = (
+        float(benchmark_returns.std(ddof=1) * math.sqrt(periods_per_year)) if len(valid) > 1 else math.nan
+    )
+    excess_std = float(excess_returns.std(ddof=1)) if len(valid) > 1 else math.nan
+    tracking_error = float(excess_std * math.sqrt(periods_per_year)) if len(valid) > 1 else math.nan
+    relative_information_ratio = (
+        float(excess_returns.mean() / excess_std * math.sqrt(periods_per_year))
+        if len(valid) > 1 and not math.isclose(excess_std, 0.0)
+        else math.nan
+    )
+    benchmark_drawdown = valid["benchmark_nav"] / valid["benchmark_nav"].cummax() - 1.0
+    relative_drawdown = valid["relative_nav"] / valid["relative_nav"].cummax() - 1.0
+    benchmark_variance = float(benchmark_returns.var(ddof=1)) if len(valid) > 1 else math.nan
+    beta = (
+        float(strategy_returns.cov(benchmark_returns) / benchmark_variance)
+        if len(valid) > 1 and not math.isclose(benchmark_variance, 0.0)
+        else math.nan
+    )
+    alpha_per_period = strategy_returns.mean() - beta * benchmark_returns.mean() if not math.isnan(beta) else math.nan
+    alpha_annualized = float(alpha_per_period * periods_per_year) if not math.isnan(alpha_per_period) else math.nan
+    correlation = float(strategy_returns.corr(benchmark_returns)) if len(valid) > 1 else math.nan
+    return {
+        "enabled": True,
+        "symbol": benchmark_config.get("symbol", "QQQ"),
+        "name": benchmark_config.get("name", benchmark_config.get("symbol", "QQQ")),
+        "period_count": int(len(valid)),
+        "strategy_cumulative_return": strategy_cumulative_return,
+        "benchmark_cumulative_return": benchmark_cumulative_return,
+        "excess_cumulative_return": excess_cumulative_return,
+        "benchmark_annualized_return": float((1.0 + benchmark_cumulative_return) ** (periods_per_year / len(valid)) - 1.0),
+        "benchmark_annualized_volatility": benchmark_volatility,
+        "benchmark_max_drawdown": float(benchmark_drawdown.min()),
+        "tracking_error": tracking_error,
+        "relative_information_ratio": relative_information_ratio,
+        "beta": beta,
+        "alpha_annualized": alpha_annualized,
+        "correlation": correlation,
+        "relative_max_drawdown": float(relative_drawdown.min()),
+        "avg_excess_return": float(excess_returns.mean()),
+        "win_rate_vs_benchmark": float((excess_returns > 0).mean()),
+        "config": benchmark_config,
+    }
+
+
 def read_history_buckets(path: Path) -> pd.DataFrame:
     if not path.exists():
         return pd.DataFrame(columns=["symbol", "history_bucket"])
@@ -427,3 +634,8 @@ def write_backtest_outputs(result: BacktestResult, paths: dict[str, Path]) -> No
         yaml.safe_dump(result.summary, allow_unicode=True, sort_keys=False),
         encoding="utf-8",
     )
+    if "benchmark_summary" in paths:
+        paths["benchmark_summary"].write_text(
+            yaml.safe_dump(result.summary.get("benchmark", {}), allow_unicode=True, sort_keys=False),
+            encoding="utf-8",
+        )

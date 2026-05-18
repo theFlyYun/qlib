@@ -137,3 +137,11 @@ backtest:
       min_median_dollar_volume_60d: 2000000
       max_zero_volume_ratio_60d: 0.05
       min_recent_trading_days_60d: 40
+
+benchmark:
+  enabled: true
+  source: fred
+  symbol: NASDAQCOM
+  series_id: NASDAQCOM
+  name: Nasdaq Composite Index
+  refresh: false
