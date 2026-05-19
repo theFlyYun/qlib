@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import math
+import random
 import shutil
 import sys
 from copy import deepcopy
@@ -154,6 +155,7 @@ def validate_config(config: dict[str, Any]) -> None:
     validate_strategy_comparison(config)
     validate_within_sector_review(config)
     validate_sector_error_review(config)
+    validate_training_control(config)
 
 
 def validate_universe_selection(config: dict[str, Any]) -> None:
@@ -339,6 +341,18 @@ def validate_sector_error_review(config: dict[str, Any]) -> None:
         raise ValueError("sector_error_review.min_summary_periods must be positive")
 
 
+def validate_training_control(config: dict[str, Any]) -> None:
+    training = config.get("training", {})
+    if not training:
+        return
+    if "seed" in training and int(training["seed"]) < 0:
+        raise ValueError("training.seed must be non-negative")
+    if "reuse_test_predictions" in training and not isinstance(training["reuse_test_predictions"], bool):
+        raise ValueError("training.reuse_test_predictions must be true or false")
+    if training.get("deterministic", False) and "seed" not in training:
+        raise ValueError("training.deterministic requires training.seed")
+
+
 def date_value(value: Any) -> pd.Timestamp:
     if isinstance(value, str) and value == "latest":
         return pd.Timestamp.today().normalize()
@@ -435,6 +449,44 @@ def write_resolved_config(config: dict[str, Any], paths: dict[str, Path]) -> Non
         yaml.safe_dump(resolved, allow_unicode=True, sort_keys=False),
         encoding="utf-8",
     )
+
+
+def set_training_seed(config: dict[str, Any]) -> int | None:
+    seed = config.get("training", {}).get("seed")
+    if seed is None:
+        return None
+    seed = int(seed)
+    random.seed(seed)
+    np.random.seed(seed)
+    return seed
+
+
+def use_cached_test_predictions(config: dict[str, Any]) -> bool:
+    return bool(config.get("training", {}).get("reuse_test_predictions", False))
+
+
+def read_test_predictions(path: Path) -> pd.DataFrame:
+    if not path.exists():
+        raise FileNotFoundError(f"training.reuse_test_predictions is true but {path} does not exist")
+    frame = pd.read_csv(path)
+    required = {"datetime", "instrument", "score"}
+    missing = sorted(required - set(frame.columns))
+    if missing:
+        raise ValueError(f"cached test_predictions.csv missing column(s): {', '.join(missing)}")
+    frame = frame[["datetime", "instrument", "score"]].copy()
+    frame["datetime"] = pd.to_datetime(frame["datetime"]).dt.normalize()
+    frame["instrument"] = frame["instrument"].astype(str).str.upper()
+    frame["score"] = pd.to_numeric(frame["score"], errors="coerce")
+    return frame.dropna(subset=["datetime", "instrument", "score"])
+
+
+def prediction_frame_to_series(frame: pd.DataFrame) -> pd.Series:
+    working = frame[["datetime", "instrument", "score"]].copy()
+    working["datetime"] = pd.to_datetime(working["datetime"]).dt.normalize()
+    working["instrument"] = working["instrument"].astype(str).str.upper()
+    index = pd.MultiIndex.from_frame(working[["datetime", "instrument"]])
+    index.names = ["datetime", "instrument"]
+    return pd.Series(pd.to_numeric(working["score"], errors="coerce").to_numpy(), index=index, name="score")
 
 
 def dump_qlib_bin(config: dict[str, Any], paths: dict[str, Path]) -> None:
@@ -588,15 +640,24 @@ def train_and_predict(
             "test": segments["test"],
         },
     )
-    model = LGBModel(**config["model"]["kwargs"])
-    print("Training Qlib LGBModel on Alpha158 features...")
-    model.fit(dataset)
-    pred = model.predict(dataset, segment="test")
-    pred.name = "score"
-
-    pred_frame = pred.reset_index()
-    pred_frame.columns = ["datetime", "instrument", "score"]
-    pred_frame.to_csv(paths["test_predictions_csv"], index=False)
+    training_seed = set_training_seed(config)
+    if use_cached_test_predictions(config):
+        print(f"Reusing cached test predictions from {paths['test_predictions_csv']}...")
+        pred_frame = read_test_predictions(paths["test_predictions_csv"])
+        pred = prediction_frame_to_series(pred_frame)
+        prediction_source = "cached_test_predictions"
+    else:
+        model = LGBModel(**config["model"]["kwargs"])
+        print("Training Qlib LGBModel on Alpha158 features...")
+        model.fit(dataset)
+        pred = model.predict(dataset, segment="test")
+        pred.name = "score"
+        pred_frame = pred.reset_index()
+        pred_frame.columns = ["datetime", "instrument", "score"]
+        pred_frame["datetime"] = pd.to_datetime(pred_frame["datetime"]).dt.normalize()
+        pred_frame["instrument"] = pred_frame["instrument"].astype(str).str.upper()
+        pred_frame.to_csv(paths["test_predictions_csv"], index=False)
+        prediction_source = "trained"
     latest_date = pred_frame["datetime"].max()
     latest = pred_frame[pred_frame["datetime"] == latest_date].copy()
     latest["symbol"] = latest["instrument"].astype(str).str.upper()
@@ -631,6 +692,10 @@ def train_and_predict(
         "ic_mean": ic_mean,
         "rank_ic_mean": rank_ic_mean,
         "ic_count": ic_count,
+        "prediction_source": prediction_source,
+        "training_seed": training_seed,
+        "deterministic_training": bool(config.get("training", {}).get("deterministic", False)),
+        "reuse_test_predictions": bool(use_cached_test_predictions(config)),
         "fundamentals_enabled": bool(config.get("fundamentals", {}).get("enabled", False)),
         "fundamental_feature_count": 0 if fundamental_result is None else int(fundamental_result.features.shape[1]),
         "fundamental_failure_count": 0 if fundamental_result is None else int(len(fundamental_result.failures)),
@@ -1271,6 +1336,17 @@ def write_report(
         "## 模型参数",
         "",
         *format_yaml_block(model_kwargs),
+        "",
+        "## 训练复现控制",
+        "",
+        *(
+            format_yaml_block(config.get("training", {}))
+            if config.get("training")
+            else ["- 未配置。"]
+        ),
+        f"- 预测分数来源：`{meta.get('prediction_source', 'trained')}`",
+        f"- 训练随机种子：`{meta.get('training_seed')}`",
+        f"- 是否复用 `test_predictions.csv`：`{meta.get('reuse_test_predictions', False)}`",
         "",
         "## 训练/验证/测试区间",
         "",

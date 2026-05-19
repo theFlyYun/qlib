@@ -20,7 +20,7 @@
 
 1. 基础：[[Week 1 - Quant And Qlib Basics]]、[[Week 2 - Data Dataset And Features]]
 2. 信号与标签：[[Alpha158 And Features]]、[[Labels And Future Returns]]、[[Five Day Future Return Label]]、[[IC And Rank IC]]
-3. 模型：[[LightGBM Training Notes]]、[[Model Validation]]
+3. 模型：[[LightGBM Training Notes]]、[[Model Validation]]、[[Experiment Reproducibility And Prediction Cache]]
 4. 策略回测：[[TopK Strategy]]、[[Backtest And Costs]]、[[TopK Cost Backtest]]、[[PIT Safe Backtest]]、[[Future Information Audit]]、[[Benchmark And Excess Return Review]]、[[Position Contribution And Exposure Review]]
 5. 数据扩展：[[Data Source Upgrade Plan]]、[[Fixed Window And Real EDGAR Runbook]]、[[Norgate Data Integration]]、[[SEC EDGAR Fundamentals Integration]]、[[SEC EDGAR Technical Data Flow]]、[[Short History Evaluation And EDGAR Full Run]]、[[Stock Pool Cleaning And History Buckets]]、[[Security Master Data]]、[[Liquidity Filtering]]、[[Industry Features And Relative Ranking]]、[[Data Scope And Sources]]、[[Financial Valuation Industry Macro News]]
 6. 组合风控：[[Industry Neutralization]]、[[Industry Exposure Strategy Comparison]]、[[Industry Constraint Sensitivity]]、[[Within Sector Stock Selection Review]]、[[Sector Specific Error Review]]、[[Portfolio Risk Control]]
@@ -66,6 +66,7 @@
 [[IC And Rank IC]]
 [[LightGBM Training Notes]]
 [[Model Validation]]
+[[Experiment Reproducibility And Prediction Cache]]
 [[TopK Strategy]]
 [[Backtest And Costs]]
 [[TopK Cost Backtest]]

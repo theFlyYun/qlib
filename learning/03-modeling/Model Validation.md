@@ -51,6 +51,8 @@ Rank ICIR
 
 后续每次实验必须保留 `resolved_config.yaml`。如果没有这份实际配置记录，就无法确认股票池、标签、特征、切分和模型参数，也就不可复盘。
 
+从阶段 5.8A 开始，还要记录 `test_predictions.csv` 的来源。如果只是改 TopK、行业约束或错误复盘，应复用同一份预测分数；如果改特征、标签或模型参数，才重新训练。详见 [[Experiment Reproducibility And Prediction Cache]]。
+
 ## 遗留问题
 
 - IC 低，模型预测力不足。

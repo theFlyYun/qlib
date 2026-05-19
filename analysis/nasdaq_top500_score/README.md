@@ -158,6 +158,17 @@ export SEC_EDGAR_USER_AGENT="Your Name your-email@example.com"
   --config analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_lgbm_10y_frozen_2023_top500_5d_pit_safe.yaml
 ```
 
+该配置已经加入训练复现控制：
+
+```yaml
+training:
+  seed: 20260519
+  deterministic: true
+  reuse_test_predictions: false
+```
+
+如果只做行业约束、TopK 或错误复盘，不希望重新训练 LightGBM，可以临时把 `reuse_test_predictions` 改成 `true`，流水线会复用当前 run 目录下已有的 `test_predictions.csv`。
+
 已跑通结果：1000 只候选股票中 500 只进入冻结股票池。最近一次复跑的默认 Top10 策略成本后累计收益 `45.35%`，年化收益 `17.32%`，最大回撤 `-28.46%`。这比运行日市值股票池的 PIT 过滤版明显保守，说明股票池未来信息是旧回测收益异常高的重要来源。
 
 该配置同时启用 FRED `NASDAQCOM` 基准复盘。当前结果：

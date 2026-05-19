@@ -40,6 +40,7 @@
 - [Week 3 - Model Workflow And Experiment Tracking](<03-modeling/Week 3 - Model Workflow And Experiment Tracking.md>)
 - [LightGBM Training Notes](<03-modeling/LightGBM Training Notes.md>)
 - [Model Validation](<03-modeling/Model Validation.md>)
+- [Experiment Reproducibility And Prediction Cache](<03-modeling/Experiment Reproducibility And Prediction Cache.md>)
 
 ### 04 Strategy Backtest
 

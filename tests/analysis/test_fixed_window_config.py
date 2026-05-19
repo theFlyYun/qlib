@@ -6,7 +6,13 @@ import pandas as pd
 import pytest
 
 from analysis.nasdaq_top500_score.data_sources.nasdaq_public import nasdaq_history_window
-from analysis.nasdaq_top500_score.run_qlib_alpha158_lightgbm import choose_segments, load_config, validate_config
+from analysis.nasdaq_top500_score.run_qlib_alpha158_lightgbm import (
+    choose_segments,
+    load_config,
+    prediction_frame_to_series,
+    read_test_predictions,
+    validate_config,
+)
 
 
 def test_nasdaq_history_window_prefers_fixed_start_and_end_dates() -> None:
@@ -93,3 +99,47 @@ def test_frozen_2023_config_parses_and_selects_before_test_window() -> None:
     assert config["universe"]["selection"]["method"] == "approximate_market_cap_asof"
     assert config["universe"]["selection"]["as_of_date"] == "2023-12-31"
     assert config["split"]["test"]["start"] == "2024-01-01"
+    assert config["training"]["seed"] == 20260519
+    assert config["training"]["deterministic"] is True
+    assert config["model"]["kwargs"]["seed"] == 20260519
+    assert config["model"]["kwargs"]["deterministic"] is True
+
+
+def test_training_control_validation_rejects_reuse_non_boolean() -> None:
+    config = {
+        "experiment": {},
+        "universe": {"exchange": "NASDAQ"},
+        "data": {
+            "source": "nasdaq_public",
+            "lookback_days": 10,
+            "freq": "day",
+            "vwap_method": "ohlc_mean",
+        },
+        "label": {},
+        "features": {"handler": "Alpha158"},
+        "split": {"method": "ratio", "train_ratio": 0.6, "valid_ratio": 0.2, "test_ratio": 0.2},
+        "model": {"class": "LGBModel"},
+        "report": {},
+        "training": {"seed": 7, "deterministic": True, "reuse_test_predictions": "yes"},
+    }
+
+    with pytest.raises(ValueError, match="training.reuse_test_predictions"):
+        validate_config(config)
+
+
+def test_cached_test_predictions_are_normalized_and_convert_to_series(tmp_path: Path) -> None:
+    path = tmp_path / "test_predictions.csv"
+    pd.DataFrame(
+        [
+            {"datetime": "2024-01-02 15:30:00", "instrument": "aapl", "score": "0.12"},
+            {"datetime": "2024-01-03 15:30:00", "instrument": "msft", "score": "0.34"},
+        ]
+    ).to_csv(path, index=False)
+
+    frame = read_test_predictions(path)
+    series = prediction_frame_to_series(frame)
+
+    assert frame["datetime"].dt.strftime("%Y-%m-%d").tolist() == ["2024-01-02", "2024-01-03"]
+    assert frame["instrument"].tolist() == ["AAPL", "MSFT"]
+    assert series.index.names == ["datetime", "instrument"]
+    assert series.loc[(pd.Timestamp("2024-01-02"), "AAPL")] == 0.12

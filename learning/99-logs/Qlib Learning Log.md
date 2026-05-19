@@ -330,6 +330,17 @@
 
 详细笔记：[[Sector Specific Error Review]]
 
+## 2026-05-19 训练复现控制
+
+- 学习主题：把“重新训练模型”和“复用测试期预测分数做复盘”分开，避免跨阶段比较混入 LightGBM 重训波动。
+- 当前动作：frozen 配置新增 `training.seed`、`training.deterministic`、`training.reuse_test_predictions`，并给 LightGBM 配置 `seed`、`bagging_seed`、`feature_fraction_seed`、`data_random_seed`、`drop_seed`、`deterministic` 和 `force_col_wise`。
+- 工程结果：默认仍重新训练并写出新的 `test_predictions.csv`；当 `reuse_test_predictions: true` 时，流水线读取已有 `test_predictions.csv`，跳过 `model.fit()` 和 `model.predict()`，下游 TopK、回测、行业复盘继续使用同一批 score。
+- 报告结果：`report.md` 会记录预测分数来源、训练随机种子和是否复用缓存分数。
+- 当前判断：后续改特征或标签时重新训练；只改 TopK、行业约束、错误复盘时复用预测分数。
+- 下一步：加入 size / liquidity / momentum 的行业内相对特征，属于“改模型输入”，因此会在固定 seed 的前提下重新训练。
+
+详细笔记：[[Experiment Reproducibility And Prediction Cache]]
+
 ## 复盘原则
 
 - 先写假设，再看结果。

@@ -134,6 +134,15 @@ export SEC_EDGAR_USER_AGENT="Your Name your-email@example.com"
   --config analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_lgbm_10y_frozen_2023_top500_5d_pit_safe.yaml
 ```
 
+如果只是复盘行业约束、TopK 或错误样本，不想重新训练模型，可以把配置中的 `training.reuse_test_predictions` 临时改为 `true`。这会复用当前 run 目录里的 `test_predictions.csv`：
+
+```yaml
+training:
+  seed: 20260519
+  deterministic: true
+  reuse_test_predictions: true
+```
+
 该配置已启用 `NASDAQCOM` 基准复盘，输出：
 
 ```text

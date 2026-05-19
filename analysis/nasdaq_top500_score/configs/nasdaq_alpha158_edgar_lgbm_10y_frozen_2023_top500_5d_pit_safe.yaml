@@ -112,6 +112,18 @@ model:
     lambda_l1: 1.0
     lambda_l2: 10.0
     num_threads: 8
+    seed: 20260519
+    bagging_seed: 20260519
+    feature_fraction_seed: 20260519
+    data_random_seed: 20260519
+    drop_seed: 20260519
+    deterministic: true
+    force_col_wise: true
+
+training:
+  seed: 20260519
+  deterministic: true
+  reuse_test_predictions: false
 
 report:
   top_n: 10

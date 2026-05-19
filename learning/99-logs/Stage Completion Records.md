@@ -2512,3 +2512,91 @@ learning/00-start-here/Qlib Commands.md
 learning/99-logs/Qlib Learning Log.md
 learning/99-logs/Stage Completion Records.md
 ```
+
+## 2026-05-19 阶段 5.8A：训练复现控制与预测分数缓存
+
+目标：
+
+固定模型训练随机性，并允许后续复盘直接复用已有 `test_predictions.csv`。
+
+为什么要做：
+
+5.7C 发现完整运行会重新训练 LightGBM，导致模型分数和 5.7A/B 记录时略有差异。后续我们要判断新特征、短历史惩罚和行业约束是否有效，必须先减少重训波动。
+
+输入数据：
+
+```text
+frozen 配置
+当前 Nasdaq Top500 10 年窗口数据
+现有 test_predictions.csv
+现有 TopK / 回测 / 行业复盘模块
+```
+
+核心概念：
+
+```text
+重新训练：改特征、标签或模型参数时使用
+复用预测：只改 TopK、行业约束或错误复盘时使用
+seed：固定随机性，让同一实验更容易复现
+prediction_source：报告中记录分数来自 trained 还是 cached_test_predictions
+```
+
+实验动作：
+
+```text
+新增 training.seed / deterministic / reuse_test_predictions 配置
+给 LightGBM 增加 seed、bagging_seed、feature_fraction_seed、data_random_seed、drop_seed
+在训练入口设置 Python 和 NumPy 随机种子
+支持 reuse_test_predictions=true 时读取已有 test_predictions.csv
+报告新增训练复现控制章节
+新增学习文档说明什么时候重训、什么时候复用分数
+```
+
+评价指标：
+
+```text
+配置可解析
+测试期预测缓存格式可读取
+预测分数可转换回 Qlib MultiIndex Series
+默认配置仍保持重新训练
+report.md 可记录预测分数来源
+```
+
+结果解读：
+
+```text
+阶段 5.8A 不追求提高收益或 IC。
+它解决的是实验可比性问题。
+后续只改组合规则时，应复用 test_predictions.csv。
+后续加入新模型输入时，应重新训练，但使用固定 seed。
+```
+
+遗留问题：
+
+```text
+LightGBM 的 deterministic 设置可以降低随机波动，但不同硬件、线程库或依赖版本仍可能有细微差异。
+当前没有把模型对象本身持久化，只缓存测试期预测分数。
+如果上游数据重新下载并变化，复用旧 test_predictions.csv 需要同时核对 resolved_config.yaml。
+```
+
+下一阶段准备：
+
+```text
+阶段 5.8B：加入 size / liquidity / momentum 的行业内相对特征
+重新训练 frozen 配置
+观察 Technology 和 Consumer Discretionary 的行业内 Rank IC 是否改善
+```
+
+产出文件：
+
+```text
+analysis/nasdaq_top500_score/run_qlib_alpha158_lightgbm.py
+analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_lgbm_10y_frozen_2023_top500_5d_pit_safe.yaml
+tests/analysis/test_fixed_window_config.py
+learning/03-modeling/Experiment Reproducibility And Prediction Cache.md
+learning/03-modeling/Model Validation.md
+learning/00-start-here/Qlib Commands.md
+learning/00-start-here/Qlib Quant Learning Index.md
+learning/99-logs/Qlib Learning Log.md
+learning/99-logs/Stage Completion Records.md
+```
