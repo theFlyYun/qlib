@@ -25,6 +25,7 @@ try:
     from data_sources import DataSourceUnavailable, create_data_source
     from fundamentals import build_fundamental_features
     from industry import build_industry_feature_frame
+    from market_features import build_market_feature_frame
     from sector_error_review import run_sector_error_review
     from selection import apply_bucket_ranking, apply_liquidity_filter, build_history_buckets
     from within_sector import run_within_sector_review
@@ -33,6 +34,7 @@ except ImportError:  # pragma: no cover - supports importing this script as a mo
     from analysis.nasdaq_top500_score.data_sources import DataSourceUnavailable, create_data_source
     from analysis.nasdaq_top500_score.fundamentals import build_fundamental_features
     from analysis.nasdaq_top500_score.industry import build_industry_feature_frame
+    from analysis.nasdaq_top500_score.market_features import build_market_feature_frame
     from analysis.nasdaq_top500_score.sector_error_review import run_sector_error_review
     from analysis.nasdaq_top500_score.selection import apply_bucket_ranking, apply_liquidity_filter, build_history_buckets
     from analysis.nasdaq_top500_score.within_sector import run_within_sector_review
@@ -152,6 +154,7 @@ def validate_config(config: dict[str, Any]) -> None:
     validate_backtest(config)
     validate_benchmark(config)
     validate_attribution(config)
+    validate_market_features(config)
     validate_strategy_comparison(config)
     validate_within_sector_review(config)
     validate_sector_error_review(config)
@@ -353,6 +356,23 @@ def validate_training_control(config: dict[str, Any]) -> None:
         raise ValueError("training.deterministic requires training.seed")
 
 
+def validate_market_features(config: dict[str, Any]) -> None:
+    market_features = config.get("market_features", {})
+    if not market_features or not market_features.get("enabled", False):
+        return
+    if market_features.get("source", "qlib_source_csv") != "qlib_source_csv":
+        raise ValueError("market_features.source currently supports qlib_source_csv")
+    group_levels = set(market_features.get("group_levels", ["sector", "industry"]))
+    if not group_levels.issubset({"sector", "industry"}):
+        raise ValueError("market_features.group_levels can only include sector and industry")
+    for key in ["dollar_volume_windows", "momentum_windows", "volatility_windows"]:
+        for value in market_features.get(key, []):
+            if int(value) <= 0:
+                raise ValueError(f"market_features.{key} values must be positive")
+    if int(market_features.get("min_group_size", 5)) <= 0:
+        raise ValueError("market_features.min_group_size must be positive")
+
+
 def date_value(value: Any) -> pd.Timestamp:
     if isinstance(value, str) and value == "latest":
         return pd.Timestamp.today().normalize()
@@ -399,6 +419,8 @@ def build_paths(config: dict[str, Any]) -> dict[str, Path]:
         "fundamental_features": output_dir / "fundamental_features.parquet",
         "fundamental_failures": output_dir / "fundamental_failures.csv",
         "edgar_cik_map": output_dir / "edgar_cik_map.csv",
+        "market_features": output_dir / "market_features.parquet",
+        "market_feature_failures": output_dir / "market_feature_failures.csv",
         "industry_features": output_dir / "industry_features.parquet",
         "industry_failures": output_dir / "industry_failures.csv",
         "predictions_csv": output_dir / "predictions.csv",
@@ -605,8 +627,13 @@ def train_and_predict(
         label=([config["label"]["expression"]], [config["label"]["name"]]),
     )
     fundamental_result = None
+    market_feature_result = None
     industry_result = None
     extra_feature_frames: list[pd.DataFrame] = []
+    if config.get("market_features", {}).get("enabled", False):
+        print("Building market-derived sector-relative features...")
+        market_feature_result = build_market_feature_frame(universe, config, paths)
+        extra_feature_frames.append(market_feature_result.features)
     if config.get("fundamentals", {}).get("enabled", False):
         print("Building SEC EDGAR point-in-time fundamental features...")
         fundamental_result = build_fundamental_features(universe, config, paths)
@@ -700,6 +727,10 @@ def train_and_predict(
         "fundamental_feature_count": 0 if fundamental_result is None else int(fundamental_result.features.shape[1]),
         "fundamental_failure_count": 0 if fundamental_result is None else int(len(fundamental_result.failures)),
         "cik_mapped_count": 0 if fundamental_result is None else int(len(fundamental_result.cik_map)),
+        "market_features_enabled": bool(config.get("market_features", {}).get("enabled", False)),
+        "market_feature_count": 0 if market_feature_result is None else int(market_feature_result.features.shape[1]),
+        "market_feature_failure_count": 0 if market_feature_result is None else int(len(market_feature_result.failures)),
+        "market_feature_coverage": {} if market_feature_result is None else market_feature_result.coverage,
         "industry_enabled": bool(config.get("industry", {}).get("enabled", False)),
         "industry_feature_count": 0 if industry_result is None else int(industry_result.features.shape[1]),
         "industry_failure_count": 0 if industry_result is None else int(len(industry_result.failures)),
@@ -1326,6 +1357,20 @@ def write_report(
             else ["- 未启用。"]
         ),
         "",
+        "## 行情相对特征",
+        "",
+        *(
+            [
+                *format_yaml_block(config.get("market_features", {})),
+                f"- 行情相对特征数量：{meta.get('market_feature_count', 0)}",
+                f"- 行情相对特征失败或跳过数量：{meta.get('market_feature_failure_count', 0)}",
+                "- 行情相对特征覆盖：",
+                *format_yaml_block(meta.get("market_feature_coverage", {})),
+            ]
+            if config.get("market_features", {}).get("enabled", False)
+            else ["- 未启用。"]
+        ),
+        "",
         "## 标签与特征",
         "",
         f"- 标签名：`{config['label']['name']}`",
@@ -1605,6 +1650,8 @@ def write_report(
             "- `fundamental_features.parquet`：日频 PIT 财报与估值特征；仅启用 EDGAR 时生成有效内容。",
             "- `fundamental_failures.csv`：EDGAR 映射、字段或行情缺失记录。",
             "- `edgar_cik_map.csv`：本次股票池 ticker 到 SEC CIK 的映射。",
+            "- `market_features.parquet`：日频 PIT 行情派生特征和 sector / industry 内相对特征。",
+            "- `market_feature_failures.csv`：行情相对特征失败原因。",
             "- `industry_features.parquet`：行业内 rank / percentile 特征；仅启用行业特征时生成有效内容。",
             "- `industry_failures.csv`：sector / industry 缺失或 rank 字段缺失记录。",
             "- `predictions.csv`：最新日全部模型分数。",

@@ -169,16 +169,18 @@ training:
 
 如果只做行业约束、TopK 或错误复盘，不希望重新训练 LightGBM，可以临时把 `reuse_test_predictions` 改成 `true`，流水线会复用当前 run 目录下已有的 `test_predictions.csv`。
 
-已跑通结果：1000 只候选股票中 500 只进入冻结股票池。最近一次复跑的默认 Top10 策略成本后累计收益 `45.35%`，年化收益 `17.32%`，最大回撤 `-28.46%`。这比运行日市值股票池的 PIT 过滤版明显保守，说明股票池未来信息是旧回测收益异常高的重要来源。
+该配置同时启用 `market_features`，从截至当日的 OHLCV 计算价格、成交额、动量、波动率、历史长度及其 sector / industry 内 percentile。当前数据源没有历史 shares outstanding，因此没有把真实历史市值作为模型输入，先用成交额和价格水平作为 size / liquidity 代理。
+
+已跑通结果：1000 只候选股票中 500 只进入冻结股票池。最近一次 5.8B 复跑的默认 Top10 策略成本后累计收益 `51.99%`，年化收益 `19.58%`，最大回撤 `-36.00%`。这比运行日市值股票池的 PIT 过滤版明显保守，说明股票池未来信息是旧回测收益异常高的重要来源。
 
 该配置同时启用 FRED `NASDAQCOM` 基准复盘。当前结果：
 
 ```text
-策略累计收益：45.35%
+策略累计收益：51.99%
 NASDAQCOM 基准累计收益：78.78%
-超额累计收益：-18.70%
-Beta：1.040
-年化 Alpha：-4.74%
+超额累计收益：-14.99%
+Beta：1.117
+年化 Alpha：-4.92%
 ```
 
 这说明冻结股票池后，策略虽然有绝对收益，但没有跑赢纳斯达克综合指数。
@@ -209,14 +211,14 @@ strategy_comparison/sector_momentum_tilt_top10/
 最近一次对照结果：
 
 ```text
-unconstrained_top10：累计收益 24.77%，年化收益 9.91%，超额累计收益 -30.21%
-sector_cap_2_top10：累计收益 62.84%，年化收益 23.15%，超额累计收益 -8.92%，Sector HHI 0.176
-sector_cap_3_top10：累计收益 76.79%，年化收益 27.55%，超额累计收益 -1.11%，Sector HHI 0.231
-sector_cap_4_top10：累计收益 52.19%，年化收益 19.65%，超额累计收益 -14.87%，Sector HHI 0.266
-sector_momentum_tilt_top10：累计收益 67.91%，年化收益 24.78%，超额累计收益 -6.08%
+unconstrained_top10：累计收益 59.18%，年化收益 21.96%，超额累计收益 -10.96%
+sector_cap_2_top10：累计收益 94.96%，年化收益 33.00%，超额累计收益 9.05%，Sector HHI 0.174
+sector_cap_3_top10：累计收益 79.14%，年化收益 28.27%，超额累计收益 0.20%，Sector HHI 0.224
+sector_cap_4_top10：累计收益 51.99%，年化收益 19.58%，超额累计收益 -14.99%，Sector HHI 0.255
+sector_momentum_tilt_top10：累计收益 66.04%，年化收益 24.18%，超额累计收益 -7.13%
 ```
 
-当前判断：`max_sector=3` 在本次实验里年化收益和超额收益最好；`max_sector=2` 回撤和行业集中度更低但收益略弱；`max_sector=4` 偏松。当前默认保留 `max_sector=3`、`max_industry=2`。
+当前判断：加入行情相对特征后，`max_sector=2` 的收益、超额收益、alpha、回撤和行业集中度综合最好；`max_sector=3` 次之；`max_sector=4` 偏松。下一步需要把默认行业约束从 4/3 重新评估到 2。
 
 该配置还会生成行业内选股复盘，检查模型在同一个 sector 内能否把未来收益更好的股票排到前面：
 
@@ -228,7 +230,7 @@ within_sector_quantile_returns.csv
 within_sector_selection_summary.yaml
 ```
 
-最近一次行业内复盘结论：Telecommunications、Health Care、Industrials 有一些正向排序迹象；Technology、Consumer Discretionary、Finance 的行业内排序偏弱。
+最近一次行业内复盘结论：加入行情相对特征后，Technology 和 Consumer Discretionary 的行业内 Rank IC 从负数转正，排序偏差有所缓解；Health Care 仍是混合噪声，可能需要事件数据或更严格过滤。
 
 回测口径：
 
@@ -346,7 +348,7 @@ EDGAR 配置会额外生成 `fundamental_features.parquet`、`fundamental_failur
 
 启用重点行业错误复盘的配置会额外生成 `sector_error_review_summary.csv`、`sector_error_examples.csv`、`sector_error_feature_differences.csv` 和 `sector_error_review_summary.yaml`。
 
-最近一次重点行业错误复盘结论：`Technology` 和 `Consumer Discretionary` 的行业内排序偏弱；`Health Care` 有正向迹象但噪声较大。三个行业的高分输家都大量集中在短历史股票，模型也容易漏掉更大市值、更高流动性、近期动量更强的低分赢家。
+最近一次重点行业错误复盘结论：`Technology` Rank IC 从 `-0.0214` 改善到 `0.0087`，`Consumer Discretionary` 从 `-0.0230` 改善到 `0.0159`；高分输家率和低分赢家率也下降。`Health Care` 从 `0.0191` 降到 `0.0077`，说明它更可能需要事件数据，而不是继续只加行情特征。
 
 `resolved_config.yaml` 是复盘入口：它记录这次实验实际使用的股票池、标签、特征、切分和模型参数。
 

@@ -65,6 +65,7 @@
 - [Security Master Data](<05-data-expansion/Security Master Data.md>)
 - [Liquidity Filtering](<05-data-expansion/Liquidity Filtering.md>)
 - [Industry Features And Relative Ranking](<05-data-expansion/Industry Features And Relative Ranking.md>)
+- [Market Derived Relative Features](<05-data-expansion/Market Derived Relative Features.md>)
 - [Data Scope And Sources](<05-data-expansion/Data Scope And Sources.md>)
 - [Financial Valuation Industry Macro News](<05-data-expansion/Financial Valuation Industry Macro News.md>)
 

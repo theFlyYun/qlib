@@ -172,6 +172,8 @@ sector_error_review_summary.csv
 sector_error_examples.csv
 sector_error_feature_differences.csv
 sector_error_review_summary.yaml
+market_features.parquet
+market_feature_failures.csv
 report.md
 ```
 

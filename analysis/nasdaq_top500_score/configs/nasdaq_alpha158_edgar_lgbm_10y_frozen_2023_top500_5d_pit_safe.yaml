@@ -44,6 +44,34 @@ fundamentals:
   enable_valuation: true
   recent_filing_days: 5
 
+market_features:
+  enabled: true
+  source: qlib_source_csv
+  group_levels:
+    - sector
+    - industry
+  min_group_size: 5
+  dollar_volume_windows:
+    - 20
+    - 60
+  momentum_windows:
+    - 20
+    - 60
+    - 120
+  volatility_windows:
+    - 20
+    - 60
+  relative_features:
+    - log_close
+    - log_avg_dollar_volume_20d
+    - log_median_dollar_volume_60d
+    - momentum_20d
+    - momentum_60d
+    - momentum_120d
+    - volatility_20d
+    - volatility_60d
+    - history_rows_asof
+
 history_buckets:
   enabled: true
   thresholds:

@@ -295,6 +295,147 @@ learning/99-logs/Qlib Learning Log.md
 learning/99-logs/Stage Completion Records.md
 ```
 
+## 2026-05-19 阶段 5.8B：行情派生行业相对特征
+
+目标：
+
+把 5.7C 错误复盘中发现的 size / liquidity / momentum 问题转成模型输入。
+
+为什么要做：
+
+5.7C 显示模型容易给短历史、高波动股票过高分数，同时漏掉更大、更活跃、近期动量更强的赢家。当前 Nasdaq public 没有历史 shares outstanding，不能严谨生成 PIT 市值，所以第一版用价格、成交额、动量、波动率和历史长度作为更安全的代理特征。
+
+输入数据：
+
+```text
+frozen Nasdaq Top500 股票池
+2016-05-17 到 2026-05-17 日线 OHLCV
+当前 Nasdaq public sector / industry
+Alpha158 特征
+SEC EDGAR 财报估值特征
+未来 5 日收益标签
+```
+
+核心概念：
+
+```text
+market_log_close：价格水平
+market_log_avg_dollar_volume_20d：20 日平均成交额
+market_momentum_60d：60 日价格动量
+market_volatility_20d：20 日波动率
+market_history_rows_asof：截至当日历史长度
+market_sector_pct_*：同一天同 sector 内 percentile
+market_industry_pct_*：同一天同 industry 内 percentile
+```
+
+实验动作：
+
+```text
+新增 market_features.py
+新增 market_features 配置
+生成 market_features.parquet 和 market_feature_failures.csv
+把 market_features 与 Alpha158、EDGAR 一起拼接进 Qlib DatasetH
+重新训练 frozen 配置
+报告新增行情相对特征章节
+学习文档记录 PIT 口径和结果
+```
+
+评价指标：
+
+```text
+market feature 覆盖
+Technology / Health Care / Consumer Discretionary 行业内 Rank IC
+Top-Bottom spread
+高分输家率
+低分赢家率
+TopK 成本后收益
+行业约束策略对照
+```
+
+结果解读：
+
+```text
+market_features.parquet：
+  股票数 500
+  样本行数 1,116,570
+  特征数 33
+  失败记录 3 条，均为 sector / industry 缺失
+
+Technology：
+  Rank IC -0.0214 -> 0.0087
+  Top-Bottom spread -0.5044% -> 0.0306%
+  高分输家率 52.63% -> 51.15%
+  低分赢家率 50.93% -> 49.58%
+
+Health Care：
+  Rank IC 0.0191 -> 0.0077
+  Top-Bottom spread 0.5627% -> 0.1156%
+  高分输家率 49.83% -> 49.34%
+  低分赢家率 46.68% -> 49.57%
+
+Consumer Discretionary：
+  Rank IC -0.0230 -> 0.0159
+  Top-Bottom spread -0.2560% -> 0.0283%
+  高分输家率 51.97% -> 48.54%
+  低分赢家率 52.99% -> 47.72%
+```
+
+策略结果：
+
+```text
+默认 sector_cap_4_top10：
+  累计收益 51.99%
+  年化收益 19.58%
+  最大回撤 -36.00%
+  超额累计收益 -14.99%
+
+sector_cap_2_top10：
+  累计收益 94.96%
+  年化收益 33.00%
+  最大回撤 -33.82%
+  超额累计收益 9.05%
+  年化 alpha 6.06%
+```
+
+当前判断：
+
+```text
+行情相对特征有效改善了 Technology 和 Consumer Discretionary 的行业内排序。
+Health Care 没有明显改善，仍应考虑事件数据或更严格的高估值亏损股过滤。
+加入行情相对特征后，更紧的 max_sector=2 表现最好，需要重新评估默认行业约束。
+短历史股票问题有所缓解，但没有消失，后续仍要做短历史 score 校准。
+```
+
+遗留问题：
+
+```text
+sector / industry 仍不是历史 PIT 分类
+没有真实历史 shares outstanding，不能生成严谨历史市值
+成交额和价格水平只是 size / liquidity 代理
+Health Care 需要临床、审批、融资等事件型数据
+```
+
+下一阶段准备：
+
+```text
+阶段 5.8C：短历史 score 校准
+或先复用当前 test_predictions.csv，把默认行业约束重新对照为 max_sector=2
+```
+
+产出文件：
+
+```text
+analysis/nasdaq_top500_score/market_features.py
+analysis/nasdaq_top500_score/run_qlib_alpha158_lightgbm.py
+analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_lgbm_10y_frozen_2023_top500_5d_pit_safe.yaml
+tests/analysis/test_market_features.py
+learning/05-data-expansion/Market Derived Relative Features.md
+learning/00-start-here/Qlib Commands.md
+learning/00-start-here/Qlib Quant Learning Index.md
+learning/99-logs/Qlib Learning Log.md
+learning/99-logs/Stage Completion Records.md
+```
+
 ## 2026-05-18 第 5.4 条：持仓贡献与行业暴露复盘
 
 目标：

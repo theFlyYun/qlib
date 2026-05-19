@@ -341,6 +341,22 @@
 
 详细笔记：[[Experiment Reproducibility And Prediction Cache]]
 
+## 2026-05-19 行情派生行业相对特征
+
+- 学习主题：把 5.7C 错误复盘发现的 size / liquidity / momentum 线索转成模型输入。
+- 当前动作：新增 `market_features`，从日线 OHLCV 计算 `market_log_close`、成交额、20/60/120 日动量、20/60 日波动率、截至当日历史长度，并生成 sector / industry 内 percentile。
+- PIT 口径：所有特征只使用当日及以前行情；例如 60 日动量等于今天收盘价除以 60 个交易日前收盘价再减 1。
+- 重要边界：当前 Nasdaq public 没有历史 shares outstanding，所以没有加入真实历史市值；第一版用成交额、价格水平和历史长度作为 size / liquidity 代理，避免把未来 shares 信息放进训练集。
+- 工程结果：frozen 配置启用 `market_features`，训练时会把 `market_features.parquet` 与 Alpha158、EDGAR 特征一起拼接进 LightGBM。
+- 实验结果：`market_features.parquet` 生成 `1,116,570` 行、`33` 个特征，覆盖 `500` 只股票；失败记录 `3` 条，都是行业分类缺失。
+- 行业结果：Technology Rank IC 从 `-0.0214` 改善到 `0.0087`，Consumer Discretionary 从 `-0.0230` 改善到 `0.0159`；两者从负数转正。
+- Health Care：Rank IC 从 `0.0191` 降到 `0.0077`，说明行情相对特征不能解决它的事件驱动噪声。
+- 策略结果：默认 `sector_cap_4_top10` 累计收益 `51.99%`、年化收益 `19.58%`、最大回撤 `-36.00%`；`sector_cap_2_top10` 累计收益 `94.96%`、年化收益 `33.00%`、超额累计收益 `9.05%`、年化 alpha `6.06%`。
+- 当前判断：5.8B 对 Technology 和 Consumer Discretionary 有帮助；行业约束应重新偏向更紧的 `max_sector=2`；短历史股票问题仍未完全消失。
+- 下一步：做短历史 score 校准，或者先把默认行业约束从 `max_sector=4/3` 调整并复用同一份 `test_predictions.csv` 做对照。
+
+详细笔记：[[Market Derived Relative Features]]
+
 ## 复盘原则
 
 - 先写假设，再看结果。
