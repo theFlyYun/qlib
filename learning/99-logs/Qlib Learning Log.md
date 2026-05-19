@@ -369,6 +369,18 @@
 
 详细笔记：[[Short History Score Calibration]]
 
+## 2026-05-19 短历史股票专项复盘
+
+- 学习主题：解释 `lt_2y` 和 `2_5y` 短历史股票到底是机会还是风险来源。
+- 当前动作：新增 `short_history_review`，直接读取 `raw_score_sector_cap_2_top10/backtest_positions.csv`，按历史长度桶、sector、industry、赢家/输家类别拆解实际持仓收益。
+- 复盘口径：不重新训练模型，不重新生成选股；收益来自已有回测持仓的 `gross_return`、`gross_contribution` 和 `net_contribution`。
+- 实验结果：`lt_2y` 持仓 105 次，平均收益 `0.57%`，胜率 `51.43%`，净贡献 `5.25%`；`2_5y` 持仓 236 次，平均收益 `1.28%`，胜率 `48.73%`，净贡献 `28.53%`。
+- 风险发现：`2_5y` 最差单票亏损 `-48.68%`，输家中亏损公司占比 `82.98%`；`lt_2y` 输家中低流动性占比 `33.33%`、高估值占比 `38.10%`。
+- 行业发现：明显负贡献集中在 `2_5y / Finance`，而 `2_5y / Basic Materials`、`2_5y / Industrials`、`lt_2y / Industrials` 是正贡献来源。
+- 当前判断：短历史股票整体不是净拖累，不应该统一剔除或继续加大统一惩罚；下一步更适合做 sector-specific 短历史约束。
+
+详细笔记：[[Short History Stock Review]]
+
 ## 复盘原则
 
 - 先写假设，再看结果。

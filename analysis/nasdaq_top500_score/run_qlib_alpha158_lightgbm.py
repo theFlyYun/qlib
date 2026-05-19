@@ -28,6 +28,7 @@ try:
     from market_features import build_market_feature_frame
     from sector_error_review import run_sector_error_review
     from selection import apply_bucket_ranking, apply_liquidity_filter, build_history_buckets
+    from short_history_review import run_short_history_review
     from within_sector import run_within_sector_review
 except ImportError:  # pragma: no cover - supports importing this script as a module in tests.
     from analysis.nasdaq_top500_score.backtest import run_topk_backtest
@@ -37,6 +38,7 @@ except ImportError:  # pragma: no cover - supports importing this script as a mo
     from analysis.nasdaq_top500_score.market_features import build_market_feature_frame
     from analysis.nasdaq_top500_score.sector_error_review import run_sector_error_review
     from analysis.nasdaq_top500_score.selection import apply_bucket_ranking, apply_liquidity_filter, build_history_buckets
+    from analysis.nasdaq_top500_score.short_history_review import run_short_history_review
     from analysis.nasdaq_top500_score.within_sector import run_within_sector_review
 
 WORKSPACE = Path(__file__).resolve().parents[2]
@@ -158,6 +160,7 @@ def validate_config(config: dict[str, Any]) -> None:
     validate_strategy_comparison(config)
     validate_within_sector_review(config)
     validate_sector_error_review(config)
+    validate_short_history_review(config)
     validate_training_control(config)
 
 
@@ -344,6 +347,24 @@ def validate_sector_error_review(config: dict[str, Any]) -> None:
         raise ValueError("sector_error_review.min_summary_periods must be positive")
 
 
+def validate_short_history_review(config: dict[str, Any]) -> None:
+    review = config.get("short_history_review", {})
+    if not review or not review.get("enabled", False):
+        return
+    if not config.get("backtest", {}).get("enabled", False):
+        raise ValueError("enabled short_history_review requires backtest.enabled: true")
+    if not review.get("baseline_variant"):
+        raise ValueError("enabled short_history_review requires baseline_variant")
+    if not review.get("target_buckets"):
+        raise ValueError("enabled short_history_review requires target_buckets")
+    if not review.get("comparison_buckets"):
+        raise ValueError("enabled short_history_review requires comparison_buckets")
+    if int(review.get("quantiles", 5)) < 2:
+        raise ValueError("short_history_review.quantiles must be at least 2")
+    if int(review.get("min_bucket_samples", 20)) <= 0:
+        raise ValueError("short_history_review.min_bucket_samples must be positive")
+
+
 def validate_training_control(config: dict[str, Any]) -> None:
     training = config.get("training", {})
     if not training:
@@ -450,6 +471,11 @@ def build_paths(config: dict[str, Any]) -> dict[str, Path]:
         "sector_error_examples_csv": output_dir / "sector_error_examples.csv",
         "sector_error_feature_differences_csv": output_dir / "sector_error_feature_differences.csv",
         "sector_error_review_summary_yaml": output_dir / "sector_error_review_summary.yaml",
+        "short_history_bucket_summary": output_dir / "short_history_bucket_summary.csv",
+        "short_history_examples": output_dir / "short_history_examples.csv",
+        "short_history_feature_differences": output_dir / "short_history_feature_differences.csv",
+        "short_history_sector_breakdown": output_dir / "short_history_sector_breakdown.csv",
+        "short_history_review_summary": output_dir / "short_history_review_summary.yaml",
         "report_md": output_dir / "report.md",
         "resolved_config": output_dir / "resolved_config.yaml",
     }
@@ -711,6 +737,7 @@ def train_and_predict(
     strategy_comparison = run_strategy_comparison(pred_frame, universe, config, paths)
     within_sector_result = run_within_sector_review(pred_frame, universe, config, paths)
     sector_error_result = run_sector_error_review(pred_frame, universe, config, paths)
+    short_history_result = run_short_history_review(pred_frame, universe, config, paths)
 
     meta = {
         "segments": segments,
@@ -756,6 +783,7 @@ def train_and_predict(
         "strategy_comparison": strategy_comparison,
         "within_sector_review": within_sector_result.summary,
         "sector_error_review": sector_error_result.yaml_summary,
+        "short_history_review": short_history_result.yaml_summary,
     }
     return top_predictions, meta
 
@@ -1279,6 +1307,50 @@ def sector_error_review_report_lines(summary: dict[str, Any]) -> list[str]:
     return lines
 
 
+def short_history_review_report_lines(summary: dict[str, Any]) -> list[str]:
+    if not summary.get("enabled", False):
+        return ["- 未启用。"]
+    buckets = summary.get("bucket_summary", [])
+    if not buckets:
+        return ["- 已启用，但没有生成短历史复盘结果。"]
+
+    lines = [
+        f"- 基线策略：`{summary.get('baseline_variant', 'N/A')}`",
+        f"- 结论标签：`{summary.get('conclusion', 'N/A')}`",
+        "",
+        "| Bucket | 持仓次数 | 股票数 | 平均收益 | 胜率 | 净贡献 | 最差单票 | 输家低流动性 | 输家高估值 | 输家亏损公司 |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+    ]
+    for row in buckets:
+        lines.append(
+            "| {bucket} | {count} | {symbols} | {avg} | {win} | {contrib} | {worst} | {low_liq} | {valuation} | {unprofitable} |".format(
+                bucket=row.get("history_bucket", "N/A"),
+                count=fmt_optional_int(row.get("position_count")),
+                symbols=fmt_optional_int(row.get("symbol_count")),
+                avg=fmt_pct(row.get("avg_gross_return")),
+                win=fmt_pct(row.get("win_rate")),
+                contrib=fmt_pct(row.get("net_contribution_sum")),
+                worst=fmt_pct(row.get("worst_position_return")),
+                low_liq=fmt_pct(row.get("loser_low_liquidity_rate")),
+                valuation=fmt_pct(row.get("loser_high_valuation_rate")),
+                unprofitable=fmt_pct(row.get("loser_unprofitable_rate")),
+            )
+        )
+
+    losses = summary.get("top_loss_sectors", [])
+    gains = summary.get("top_gain_sectors", [])
+    if losses:
+        lines.extend(["", "短历史净贡献最弱的 sector：", *format_yaml_block(losses[:5])])
+    if gains:
+        lines.extend(["", "短历史净贡献最强的 sector：", *format_yaml_block(gains[:5])])
+    differences = summary.get("largest_feature_differences", [])
+    if differences:
+        lines.extend(["", "赢家/输家差异最大的特征：", *format_yaml_block(differences[:8])])
+    lines.append("")
+    lines.append("复盘口径：本节直接读取基线策略的实际 `backtest_positions.csv`，解释已发生的持仓收益，不重新训练模型，也不重新生成一套选股结果。")
+    return lines
+
+
 def write_report(
     predictions: pd.DataFrame,
     meta: dict[str, Any],
@@ -1319,6 +1391,7 @@ def write_report(
     strategy_comparison_summary = meta.get("strategy_comparison", {})
     within_sector_summary = meta.get("within_sector_review", {})
     sector_error_summary = meta.get("sector_error_review", {})
+    short_history_summary = meta.get("short_history_review", {})
     lines = [
         f"# {config['experiment']['name']} Report",
         "",
@@ -1568,6 +1641,10 @@ def write_report(
             "",
             *sector_error_review_report_lines(sector_error_summary),
             "",
+            "## 短历史股票专项复盘",
+            "",
+            *short_history_review_report_lines(short_history_summary),
+            "",
             "## 持仓贡献与行业暴露",
             "",
             *(
@@ -1700,6 +1777,11 @@ def write_report(
             "- `sector_error_examples.csv`：高分赢家、高分输家、低分赢家、低分输家的样本明细。",
             "- `sector_error_feature_differences.csv`：错误类别之间的特征均值差异。",
             "- `sector_error_review_summary.yaml`：重点行业错误复盘摘要。",
+            "- `short_history_bucket_summary.csv`：按历史长度桶聚合的持仓收益、贡献和风险特征。",
+            "- `short_history_examples.csv`：短历史赢家和输家的样本明细。",
+            "- `short_history_feature_differences.csv`：短历史赢家 vs 输家的特征差异。",
+            "- `short_history_sector_breakdown.csv`：短历史收益和亏损按 sector / industry 拆分。",
+            "- `short_history_review_summary.yaml`：短历史专项复盘摘要。",
             "- `report.md`：本报告。",
             "- `resolved_config.yaml`：本次实际使用配置，复盘时优先看它。",
             "- `qlib_source_csv/`：逐股票原始日线 CSV。",

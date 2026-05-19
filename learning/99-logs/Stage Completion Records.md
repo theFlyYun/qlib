@@ -190,6 +190,119 @@ learning/03-modeling/Model Validation.md
 learning/99-logs/Stage Completion Records.md
 ```
 
+## 2026-05-19 阶段 5.9：短历史股票专项复盘
+
+目标：
+
+```text
+解释 lt_2y 和 2_5y 短历史股票到底是机会来源还是风险来源。
+不重新训练模型，不改变 TopK 规则，只读取已有基线策略的实际持仓结果。
+```
+
+为什么要做：
+
+```text
+5.8C 显示短历史统一惩罚没有提升收益，严格门槛还损失超额收益。
+所以问题不再是继续加大惩罚，而是拆开看短历史赢家和输家到底有什么不同。
+```
+
+输入数据：
+
+```text
+raw_score_sector_cap_2_top10/backtest_positions.csv
+universe.csv
+fundamental_features.parquet
+market_features.parquet
+```
+
+核心概念：
+
+```text
+lt_2y：180 到 503 个交易日历史
+2_5y：504 到 1259 个交易日历史
+bucket_winners：桶内实际回测收益最高的一组
+bucket_losers：桶内实际回测收益最低的一组
+```
+
+实验动作：
+
+```text
+新增 short_history_review 模块。
+按历史长度桶汇总持仓收益、胜率、贡献和风险特征。
+按 sector / industry 拆解短历史贡献。
+比较短历史赢家和输家的流动性、估值、盈利能力、动量和波动率。
+报告新增“短历史股票专项复盘”章节。
+```
+
+评价指标：
+
+```text
+持仓次数
+股票数
+平均收益
+胜率
+净贡献
+最差单票收益
+输家低流动性占比
+输家高估值占比
+输家亏损公司占比
+```
+
+结果解读：
+
+```text
+lt_2y：
+持仓 105 次，股票 10 只，平均收益 0.57%，胜率 51.43%，净贡献 5.25%，最差单票 -17.74%。
+
+2_5y：
+持仓 236 次，股票 26 只，平均收益 1.28%，胜率 48.73%，净贡献 28.53%，最差单票 -48.68%。
+
+2_5y / Finance：
+持仓 12 次，平均收益 -5.97%，胜率 16.67%，净贡献 -7.27%，是最明显的短历史负贡献来源。
+
+2_5y / Basic Materials、2_5y / Industrials、lt_2y / Industrials：
+都是短历史正贡献来源。
+```
+
+当前判断：
+
+```text
+短历史股票整体不是净拖累。
+lt_2y 和 2_5y 都是正净贡献。
+问题集中在特定行业和基本面状态，而不是“历史短”本身。
+不建议统一剔除短历史股票，也不建议继续加大统一短历史惩罚。
+```
+
+遗留问题：
+
+```text
+短历史行业差异还没有转化成新的选股约束。
+当前行业分类仍不是历史 PIT 分类。
+2_5y 输家中亏损公司占比很高，但还没有做亏损公司名额限制。
+```
+
+下一阶段准备：
+
+```text
+阶段 5.10：短历史行业约束对照。
+建议先测试：限制 2_5y / Finance 名额，或限制短历史亏损公司进入 Top10 的数量。
+观察是否降低最差单票亏损和最大回撤，同时不牺牲 Basic Materials / Industrials 的短历史正贡献。
+```
+
+产出文件：
+
+```text
+analysis/nasdaq_top500_score/short_history_review.py
+analysis/nasdaq_top500_score/run_qlib_alpha158_lightgbm.py
+analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_lgbm_10y_frozen_2023_top500_5d_pit_safe.yaml
+tests/analysis/test_short_history_review.py
+learning/06-portfolio-risk/Short History Stock Review.md
+learning/00-start-here/Qlib Commands.md
+learning/00-start-here/Qlib Quant Learning Index.md
+learning/99-logs/Qlib Learning Log.md
+learning/99-logs/Stage Completion Records.md
+```
+
 ## 2026-05-19 阶段 5.8C：短历史 score 校准
 
 目标：

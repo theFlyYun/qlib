@@ -175,6 +175,11 @@ sector_error_review_summary.csv
 sector_error_examples.csv
 sector_error_feature_differences.csv
 sector_error_review_summary.yaml
+short_history_bucket_summary.csv
+short_history_examples.csv
+short_history_feature_differences.csv
+short_history_sector_breakdown.csv
+short_history_review_summary.yaml
 market_features.parquet
 market_feature_failures.csv
 report.md

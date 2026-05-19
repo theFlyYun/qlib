@@ -77,6 +77,7 @@
 - [Within Sector Stock Selection Review](<06-portfolio-risk/Within Sector Stock Selection Review.md>)
 - [Sector Specific Error Review](<06-portfolio-risk/Sector Specific Error Review.md>)
 - [Short History Score Calibration](<06-portfolio-risk/Short History Score Calibration.md>)
+- [Short History Stock Review](<06-portfolio-risk/Short History Stock Review.md>)
 - [Portfolio Risk Control](<06-portfolio-risk/Portfolio Risk Control.md>)
 
 ### 90 Case Studies

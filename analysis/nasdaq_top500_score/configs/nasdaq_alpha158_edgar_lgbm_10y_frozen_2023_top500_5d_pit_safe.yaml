@@ -303,3 +303,15 @@ sector_error_review:
   quantiles: 5
   min_group_size: 10
   min_summary_periods: 20
+
+short_history_review:
+  enabled: true
+  baseline_variant: raw_score_sector_cap_2_top10
+  target_buckets:
+    - lt_2y
+    - 2_5y
+  comparison_buckets:
+    - full_10y
+    - 5_10y
+  quantiles: 5
+  min_bucket_samples: 20
