@@ -60,9 +60,10 @@ trading_date：模型实际做预测的交易日
 ```text
 1. 下载 FRED/ALFRED observations，其中包含 realtime_start / realtime_end。
 2. 对每个交易日，只选 effective_date <= trading_date 的数据。
-3. effective_date 默认是 realtime_start 后的下一个交易日。
-4. 对月度/低频数据 forward fill，但记录 days_since_release。
-5. 使用初始发布值或 vintage/as-of 值，不使用今天看到的最终修订值回填历史。
+3. 对 CPI、失业率、工业产出等低频统计数据，effective_date 使用 realtime_start 后的下一个交易日。
+4. 对 VIX、国债利率、信用利差、油价、美元指数等日频市场序列，effective_date 使用 observation_date 后的下一个交易日。
+5. 对月度/低频数据 forward fill，但记录 days_since_release。
+6. 使用初始发布值或严格滞后后的日频市场状态，不把未来发布的数据提前塞回历史。
 ```
 
 ## 数据流
@@ -70,8 +71,10 @@ trading_date：模型实际做预测的交易日
 ```mermaid
 flowchart TD
   A["FRED / ALFRED observations"] --> B["raw observations"]
-  B --> C["按 realtime_start 生成 effective_date"]
-  C --> D["每个交易日重建 as-of macro state"]
+  B --> C1["低频统计序列: realtime_start + 下一交易日"]
+  B --> C2["日频市场序列: observation_date + 下一交易日"]
+  C1 --> D["每个交易日重建 as-of macro state"]
+  C2 --> D
   D --> E["低频数据 forward fill"]
   E --> F["生成 macro_features.parquet"]
   G["Alpha158 价格成交量特征"] --> I["合并特征矩阵"]
@@ -191,7 +194,11 @@ export SEC_EDGAR_USER_AGENT="Your Name your-email@example.com"
 
 第一版只做宏观状态特征，不做宏观预测模型。
 
-第一版默认使用 FRED `output_type: 4`，也就是 initial release only，避免最终修订值回填历史。后续如果要更完整地模拟“当时可见的最新修订”，可以进一步使用更密集的 vintage date 查询。
+第一版低频宏观序列默认使用 FRED `output_type: 4`，也就是 initial release only，避免最终修订值回填历史。部分日频市场序列如 Treasury、VIX、信用利差、油价和美元指数使用 `output_type: 1` + `realtime_mode: latest`，按 `observation_date` 顺延到下一个交易日进入模型；这些序列的修订风险通常低于 CPI、失业率、工业产出等低频统计数据。
+
+这样做的原因是：日频市场序列如果也要求 FRED 返回完整 vintage 区间，10 年窗口会超过 FRED 单次 observation 的 vintage date 上限；而这些序列本身更接近“当天市场状态”，严格滞后一交易日后用于日频选股是更稳妥的工程口径。
+
+后续如果要更完整地模拟“当时可见的最新修订”，可以进一步使用更密集的 vintage date 查询。
 
 当前宏观变量对所有股票同日相同，所以它们的作用更像 regime feature。下一步可以研究：
 

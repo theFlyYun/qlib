@@ -84,10 +84,16 @@ macro_features:
   series:
     - id: DGS10
       name: dgs10
+      output_type: 1
+      realtime_mode: latest
+      effective_date_source: observation_date
       max_staleness_days: 20
       transforms: [level, change_20d, change_60d]
     - id: DGS2
       name: dgs2
+      output_type: 1
+      realtime_mode: latest
+      effective_date_source: observation_date
       max_staleness_days: 20
       transforms: [level, change_20d, change_60d]
     - id: FEDFUNDS
@@ -108,18 +114,30 @@ macro_features:
       transforms: [level, yoy, change_3m]
     - id: BAA10Y
       name: baa10y_credit_spread
+      output_type: 1
+      realtime_mode: latest
+      effective_date_source: observation_date
       max_staleness_days: 20
       transforms: [level, change_20d, change_60d]
     - id: VIXCLS
       name: vix
+      output_type: 1
+      realtime_mode: latest
+      effective_date_source: observation_date
       max_staleness_days: 10
       transforms: [level, change_20d, zscore_60d]
     - id: DCOILWTICO
       name: wti_oil
+      output_type: 1
+      realtime_mode: latest
+      effective_date_source: observation_date
       max_staleness_days: 20
       transforms: [level, pct_change_20d, pct_change_60d]
     - id: DTWEXBGS
       name: broad_dollar_index
+      output_type: 1
+      realtime_mode: latest
+      effective_date_source: observation_date
       max_staleness_days: 20
       transforms: [level, pct_change_20d, pct_change_60d]
   derived:

@@ -3031,7 +3031,7 @@ forward fill：已公开宏观数据在下一次发布前继续沿用
 ```text
 需要用户设置 FRED_API_KEY 后跑真实宏观增强实验
 第一版没有区分盘前、盘中、盘后发布时间
-第一版默认 output_type=4 initial release only，后续可进一步扩展更完整的 vintage 查询
+低频统计序列默认 output_type=4 initial release only，日频市场序列使用 output_type=1 并顺延到下一个交易日；后续可进一步扩展更完整的 vintage 查询
 ```
 
 下一阶段准备：
@@ -3052,6 +3052,99 @@ analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_macro_lgbm_10y_frozen
 tests/analysis/test_macro_features.py
 learning/05-data-expansion/FRED ALFRED Macro Features Integration.md
 learning/00-start-here/Qlib Commands.md
+learning/99-logs/Qlib Learning Log.md
+learning/99-logs/Stage Completion Records.md
+```
+
+## 2026-05-19 阶段 E.4R：FRED/ALFRED 真实宏观增强实验
+
+目标：
+
+用真实 FRED/ALFRED 宏观数据跑完整 frozen 实验，和无宏观 baseline 对比，判断宏观状态变量是否有增量价值。
+
+为什么要做：
+
+宏观特征接入完成后，只有通过同股票池、同训练期、同测试期、同回测规则的对照实验，才能区分“工程上能接入”和“策略上有价值”。
+
+输入数据：
+
+```text
+无宏观 baseline frozen run
+真实 FRED/ALFRED observations
+当前 frozen Nasdaq Top500 股票池
+Alpha158 + EDGAR + industry + market relative features
+测试期 2024-01-02 到 2026-05-15
+```
+
+核心概念：
+
+```text
+宏观状态变量：同一天对所有股票相同，用来描述市场 regime
+增量 alpha：加入新特征后，在同等约束下能否提高排序、收益或风险调整表现
+Rank IC：看模型横截面排序是否更接近未来收益排序
+TopK 回测：看模型分数经过组合规则后是否真的变成策略收益
+```
+
+实验动作：
+
+```text
+修正日频市场宏观序列口径：output_type=1 + realtime_mode=latest + observation_date 后一交易日生效
+保留低频统计序列 initial release / realtime_start 口径
+重新运行宏观增强 frozen 配置
+生成 macro_features.parquet、macro_failures.csv、report.md 和 strategy_comparison.csv
+新增真实实验复盘文档
+```
+
+评价指标：
+
+```text
+macro_failures 数量
+macro_features 覆盖率
+IC / Rank IC
+sector_cap_2_top10 收益、超额收益、最大回撤、信息比率、alpha、beta
+行业暴露和 sector HHI
+```
+
+结果解读：
+
+```text
+macro_failures=0
+macro_features=1,256,500 行 x 52 列，平均非空覆盖率约 98.99%
+无宏观 baseline：IC=0.016978，Rank IC=0.003683
+宏观增强：IC=0.012456，Rank IC=0.009214
+无宏观 sector_cap_2_top10：累计收益 97.56%，年化 33.75%，最大回撤 -29.36%，超额累计收益 10.51%
+宏观 sector_cap_2_top10：累计收益 53.92%，年化 20.23%，最大回撤 -22.92%，超额累计收益 -13.90%
+```
+
+宏观特征提高了 Rank IC，也降低了 beta 和最大回撤，但没有提高 TopK 收益和超额收益。当前不能证明第一版宏观特征有稳定增量 alpha。
+
+遗留问题：
+
+```text
+日频市场序列没有使用完整 vintage，只做 observation_date 后一交易日滞后
+低频宏观数据没有精确到盘前、盘中、盘后发布时间
+宏观变量同日对所有股票相同，直接拼接可能不如交互特征有效
+单次 2024-2026 测试期不足以证明长期稳健性
+```
+
+下一阶段准备：
+
+```text
+做宏观状态交互特征，而不是继续堆更多宏观序列
+优先验证：宏观状态 × 行业、宏观状态 × 估值、宏观状态 × 动量、宏观状态 × 亏损公司
+如果交互仍无效，把宏观数据保留为风险复盘维度，而不是默认模型输入
+```
+
+产出文件：
+
+```text
+analysis/nasdaq_top500_score/macro_features.py
+analysis/nasdaq_top500_score/run_qlib_alpha158_lightgbm.py
+analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_macro_lgbm_10y_frozen_2023_top500_5d_pit_safe.yaml
+learning/05-data-expansion/FRED ALFRED Macro Features Integration.md
+learning/05-data-expansion/FRED ALFRED Macro Experiment Review.md
+learning/00-start-here/Qlib Quant Learning Index.md
+learning/README.md
 learning/99-logs/Qlib Learning Log.md
 learning/99-logs/Stage Completion Records.md
 ```

@@ -430,6 +430,12 @@ def validate_macro_features(config: dict[str, Any]) -> None:
             raise ValueError(f"macro_features.series {spec.get('id')} unsupported transform(s): {', '.join(sorted(invalid))}")
         if int(spec.get("max_staleness_days", 370)) <= 0:
             raise ValueError(f"macro_features.series {spec.get('id')} max_staleness_days must be positive")
+        if spec.get("realtime_mode", "period") not in {"period", "latest"}:
+            raise ValueError(f"macro_features.series {spec.get('id')} realtime_mode must be period or latest")
+        if spec.get("effective_date_source", "realtime_start") not in {"realtime_start", "observation_date"}:
+            raise ValueError(
+                f"macro_features.series {spec.get('id')} effective_date_source must be realtime_start or observation_date"
+            )
     for spec in macro_features.get("derived", []):
         if spec.get("operation") != "subtract":
             raise ValueError("macro_features.derived currently supports operation: subtract")

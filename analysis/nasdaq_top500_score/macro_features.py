@@ -121,10 +121,13 @@ class FredAlfredClient:
         realtime_start: str,
         realtime_end: str,
         output_type: int,
+        realtime_mode: str = "period",
     ) -> list[dict[str, Any]]:
+        if realtime_mode == "latest":
+            realtime_start = realtime_end
         cache_name = (
             f"observations_{series_id}_{observation_start}_{observation_end}_"
-            f"{realtime_start}_{realtime_end}_output{output_type}.json"
+            f"{realtime_start}_{realtime_end}_output{output_type}_{realtime_mode}.json"
         )
         cache_path = self.cache_dir / cache_name
         if cache_path.exists():
@@ -148,7 +151,8 @@ class FredAlfredClient:
                 "sort_order": "asc",
             }
             response = requests.get(FRED_OBSERVATIONS_URL, params=params, timeout=30)
-            response.raise_for_status()
+            if not response.ok:
+                raise RuntimeError(f"FRED request failed for {series_id}: HTTP {response.status_code} {response.text[:300]}")
             payload = response.json()
             page = payload.get("observations", [])
             observations.extend(page)
@@ -245,7 +249,8 @@ class MacroFeatureBuilder:
                     observation_end=end,
                     realtime_start=self.realtime_start,
                     realtime_end=self.realtime_end,
-                    output_type=self.output_type,
+                    output_type=int(spec.get("output_type", self.output_type)),
+                    realtime_mode=str(spec.get("realtime_mode", "period")),
                 )
                 frame = parse_observations(rows, spec)
                 if frame.empty:
@@ -260,7 +265,14 @@ class MacroFeatureBuilder:
                     continue
                 frames.append(frame)
             except Exception as exc:  # noqa: BLE001 - keep batch ingestion resumable.
-                failures.append({"series_id": spec["id"], "name": spec["name"], "error": "api_or_parse_error", "detail": str(exc)})
+                failures.append(
+                    {
+                        "series_id": spec["id"],
+                        "name": spec["name"],
+                        "error": "api_or_parse_error",
+                        "detail": sanitize_error_detail(str(exc)),
+                    }
+                )
 
         if not frames:
             return pd.DataFrame(columns=RAW_OBSERVATION_COLUMNS), failures
@@ -299,8 +311,9 @@ def build_asof_observations(
         series = raw[raw["series_id"] == spec["id"]].copy()
         if series.empty:
             continue
+        source_column = "date" if spec.get("effective_date_source") == "observation_date" else "realtime_start"
         series["effective_date"] = next_trading_dates(
-            pd.to_datetime(series["realtime_start"]).dt.normalize(),
+            pd.to_datetime(series[source_column]).dt.normalize(),
             calendar,
             effective_lag_trading_days,
         )
@@ -457,8 +470,19 @@ def normalize_series_specs(specs: list[dict[str, Any]]) -> list[dict[str, Any]]:
         item["id"] = series_id
         item["name"] = name
         item["transforms"] = transforms
+        if "output_type" in item:
+            item["output_type"] = int(item["output_type"])
+        item["realtime_mode"] = str(item.get("realtime_mode", "period"))
+        item["effective_date_source"] = str(item.get("effective_date_source", "realtime_start"))
         normalized.append(item)
     return normalized
+
+
+def sanitize_error_detail(detail: str) -> str:
+    api_key = os.environ.get("FRED_API_KEY")
+    if api_key:
+        detail = detail.replace(api_key, "***")
+    return detail
 
 
 def normalize_derived_specs(specs: list[dict[str, Any]]) -> list[dict[str, Any]]:

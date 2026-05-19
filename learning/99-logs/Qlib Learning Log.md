@@ -385,13 +385,25 @@
 
 - 学习主题：把利率、收益率曲线、通胀、就业、增长、信用、VIX、油价和美元指数作为宏观状态特征加入 Qlib 模型。
 - 当前动作：新增 `macro_features` 配置层和 FRED/ALFRED 适配器，下载 observations 后按 `realtime_start` 重建 as-of 序列，默认顺延到下一个交易日后才进入模型。
-- PIT 口径：不能用 `observation_date` 当作可见日期；月度数据发布后才能 forward fill；修订数据不能提前覆盖历史。
+- PIT 口径：不能用 `observation_date` 当作可见日期；月度数据发布后才能 forward fill；修订数据不能提前覆盖历史；日频市场序列统一顺延到下一个交易日。
 - 工程结果：宏观特征会输出 `macro_raw_observations.parquet`、`macro_asof_observations.parquet`、`macro_features.parquet` 和 `macro_failures.csv`，并与 Alpha158、EDGAR、market_features 一起拼接进 LightGBM。
 - 默认序列：`DGS10`、`DGS2`、`FEDFUNDS`、`CPIAUCSL`、`UNRATE`、`INDPRO`、`BAA10Y`、`VIXCLS`、`DCOILWTICO`、`DTWEXBGS`，并派生 `DGS10 - DGS2` 收益率曲线。
 - 当前判断：宏观变量不是直接横截面排序因子，而是 regime feature；它让模型学习不同宏观状态下价格、估值、动量和行业信号是否更有效。
 - 下一步：设置 `FRED_API_KEY` 后跑宏观增强配置，对比无宏观 baseline 的 IC、Rank IC、TopK 回测和行业暴露。
 
 详细笔记：[[FRED ALFRED Macro Features Integration]]
+
+## 2026-05-19 FRED/ALFRED 真实宏观增强实验
+
+- 学习主题：验证宏观状态变量是否能给当前 Nasdaq/Qlib 模型带来增量 alpha。
+- 当前动作：使用真实 FRED API 数据重跑宏观增强 frozen 配置，并与无宏观 baseline 对比 IC、Rank IC、TopK 回测和行业暴露。
+- 数据结果：`macro_failures=0`，生成 `1,256,500` 行、`52` 列宏观特征，平均非空覆盖率约 `98.99%`。
+- IC 结果：无宏观 baseline `IC=0.016978`、`Rank IC=0.003683`；宏观增强 `IC=0.012456`、`Rank IC=0.009214`。
+- 回测结果：`sector_cap_2_top10` 下，无宏观累计收益 `97.56%`、年化 `33.75%`、最大回撤 `-29.36%`；宏观增强累计收益 `53.92%`、年化 `20.23%`、最大回撤 `-22.92%`。
+- 当前判断：宏观增强提升了 Rank IC 并降低 beta / 回撤，但收益和超额收益弱于 baseline；第一版宏观特征更像风险状态调节器，不足以证明有稳定选股 alpha。
+- 下一步：不要继续盲目堆宏观序列，优先做 `宏观状态 × 行业/估值/动量/亏损公司` 的交互或 regime 复盘。
+
+详细笔记：[[FRED ALFRED Macro Experiment Review]]
 
 ## 复盘原则
 
