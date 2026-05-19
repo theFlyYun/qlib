@@ -213,12 +213,11 @@ analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_macro_lgbm_10y_frozen
 这版在 Alpha158、EDGAR 和 `market_features` 之外，加入利率、收益率曲线、通胀、就业、工业产出、信用利差、VIX、油价和美元指数等宏观状态特征。宏观数据按 `realtime_start` 重建 as-of 序列，并默认顺延到下一个交易日后才进入模型，避免把发布前或最终修订后的数据提前喂给模型。
 
 ```bash
-export SEC_EDGAR_USER_AGENT="Your Name your-email@example.com"
-export FRED_API_KEY="your-fred-api-key"
-
 .venv/bin/python -u analysis/nasdaq_top500_score/run_qlib_alpha158_lightgbm.py \
   --config analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_macro_lgbm_10y_frozen_2023_top500_5d_pit_safe.yaml
 ```
+
+`FRED_API_KEY` 和 `SEC_EDGAR_USER_AGENT` 可以写在仓库根目录 `.env`，脚本会自动读取；`.env` 已被 Git ignore，不会提交。也可以继续用 shell 环境变量覆盖本地 `.env`。
 
 同一配置还会生成持仓贡献和行业暴露复盘：
 

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import math
+import os
 import random
 import shutil
 import sys
@@ -46,6 +47,8 @@ except ImportError:  # pragma: no cover - supports importing this script as a mo
 WORKSPACE = Path(__file__).resolve().parents[2]
 ROOT = Path(__file__).resolve().parent
 DEFAULT_CONFIG = ROOT / "configs" / "nasdaq_alpha158_lgbm_1d.yaml"
+LOCAL_SECRET_FILES = [WORKSPACE / ".env", ROOT / "configs" / "local_secrets.env"]
+SECRET_ENV_KEYS = {"FRED_API_KEY", "SEC_EDGAR_USER_AGENT"}
 
 
 def parse_args() -> argparse.Namespace:
@@ -66,7 +69,24 @@ def resolve_path(path_text: str | Path) -> Path:
     return WORKSPACE / path
 
 
+def load_local_secret_env() -> None:
+    """Load ignored local credentials without overriding explicit shell env vars."""
+    for path in LOCAL_SECRET_FILES:
+        if not path.exists():
+            continue
+        for line in path.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#") or "=" not in stripped:
+                continue
+            key, value = stripped.split("=", 1)
+            key = key.strip()
+            if key not in SECRET_ENV_KEYS:
+                continue
+            os.environ.setdefault(key, value.strip().strip("\"'"))
+
+
 def load_config(config_path: Path) -> dict[str, Any]:
+    load_local_secret_env()
     resolved_path = resolve_path(config_path)
     with resolved_path.open("r", encoding="utf-8") as file:
         config = yaml.safe_load(file) or {}

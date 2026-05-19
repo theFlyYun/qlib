@@ -176,12 +176,14 @@ macro_failures.csv：下载、解析或缺失记录
 
 ## 运行方式
 
-需要先设置 FRED API key：
+可以把 FRED API key 和 SEC EDGAR user agent 写入仓库根目录 `.env`：
 
-```bash
-export FRED_API_KEY="your-fred-api-key"
-export SEC_EDGAR_USER_AGENT="Your Name your-email@example.com"
+```text
+FRED_API_KEY=your-fred-api-key
+SEC_EDGAR_USER_AGENT=Your Name your-email@example.com
 ```
+
+`.env` 已被 Git ignore，脚本会自动读取；如果 shell 里已经设置了同名环境变量，shell 环境变量优先。
 
 运行宏观增强配置：
 
