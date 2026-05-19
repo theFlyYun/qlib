@@ -381,6 +381,18 @@
 
 详细笔记：[[Short History Stock Review]]
 
+## 2026-05-19 FRED/ALFRED 宏观特征接入
+
+- 学习主题：把利率、收益率曲线、通胀、就业、增长、信用、VIX、油价和美元指数作为宏观状态特征加入 Qlib 模型。
+- 当前动作：新增 `macro_features` 配置层和 FRED/ALFRED 适配器，下载 observations 后按 `realtime_start` 重建 as-of 序列，默认顺延到下一个交易日后才进入模型。
+- PIT 口径：不能用 `observation_date` 当作可见日期；月度数据发布后才能 forward fill；修订数据不能提前覆盖历史。
+- 工程结果：宏观特征会输出 `macro_raw_observations.parquet`、`macro_asof_observations.parquet`、`macro_features.parquet` 和 `macro_failures.csv`，并与 Alpha158、EDGAR、market_features 一起拼接进 LightGBM。
+- 默认序列：`DGS10`、`DGS2`、`FEDFUNDS`、`CPIAUCSL`、`UNRATE`、`INDPRO`、`BAA10Y`、`VIXCLS`、`DCOILWTICO`、`DTWEXBGS`，并派生 `DGS10 - DGS2` 收益率曲线。
+- 当前判断：宏观变量不是直接横截面排序因子，而是 regime feature；它让模型学习不同宏观状态下价格、估值、动量和行业信号是否更有效。
+- 下一步：设置 `FRED_API_KEY` 后跑宏观增强配置，对比无宏观 baseline 的 IC、Rank IC、TopK 回测和行业暴露。
+
+详细笔记：[[FRED ALFRED Macro Features Integration]]
+
 ## 复盘原则
 
 - 先写假设，再看结果。

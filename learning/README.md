@@ -60,6 +60,7 @@
 - [Norgate Data Integration](<05-data-expansion/Norgate Data Integration.md>)
 - [SEC EDGAR Fundamentals Integration](<05-data-expansion/SEC EDGAR Fundamentals Integration.md>)
 - [SEC EDGAR Technical Data Flow](<05-data-expansion/SEC EDGAR Technical Data Flow.md>)
+- [FRED ALFRED Macro Features Integration](<05-data-expansion/FRED ALFRED Macro Features Integration.md>)
 - [Short History Evaluation And EDGAR Full Run](<05-data-expansion/Short History Evaluation And EDGAR Full Run.md>)
 - [Stock Pool Cleaning And History Buckets](<05-data-expansion/Stock Pool Cleaning And History Buckets.md>)
 - [Security Master Data](<05-data-expansion/Security Master Data.md>)

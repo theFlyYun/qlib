@@ -25,6 +25,7 @@ try:
     from data_sources import DataSourceUnavailable, create_data_source
     from fundamentals import build_fundamental_features
     from industry import build_industry_feature_frame
+    from macro_features import build_macro_feature_frame
     from market_features import build_market_feature_frame
     from sector_error_review import run_sector_error_review
     from selection import apply_bucket_ranking, apply_liquidity_filter, build_history_buckets
@@ -35,6 +36,7 @@ except ImportError:  # pragma: no cover - supports importing this script as a mo
     from analysis.nasdaq_top500_score.data_sources import DataSourceUnavailable, create_data_source
     from analysis.nasdaq_top500_score.fundamentals import build_fundamental_features
     from analysis.nasdaq_top500_score.industry import build_industry_feature_frame
+    from analysis.nasdaq_top500_score.macro_features import build_macro_feature_frame
     from analysis.nasdaq_top500_score.market_features import build_market_feature_frame
     from analysis.nasdaq_top500_score.sector_error_review import run_sector_error_review
     from analysis.nasdaq_top500_score.selection import apply_bucket_ranking, apply_liquidity_filter, build_history_buckets
@@ -157,6 +159,7 @@ def validate_config(config: dict[str, Any]) -> None:
     validate_benchmark(config)
     validate_attribution(config)
     validate_market_features(config)
+    validate_macro_features(config)
     validate_strategy_comparison(config)
     validate_within_sector_review(config)
     validate_sector_error_review(config)
@@ -394,6 +397,49 @@ def validate_market_features(config: dict[str, Any]) -> None:
         raise ValueError("market_features.min_group_size must be positive")
 
 
+def validate_macro_features(config: dict[str, Any]) -> None:
+    macro_features = config.get("macro_features", {})
+    if not macro_features or not macro_features.get("enabled", False):
+        return
+    if macro_features.get("source", "fred_alfred") != "fred_alfred":
+        raise ValueError("macro_features.source currently supports fred_alfred")
+    if not macro_features.get("series"):
+        raise ValueError("enabled macro_features requires series")
+    if int(macro_features.get("effective_lag_trading_days", 1)) < 1:
+        raise ValueError("macro_features.effective_lag_trading_days must be at least 1")
+    if int(macro_features.get("history_buffer_days", 370)) < 0:
+        raise ValueError("macro_features.history_buffer_days must be non-negative")
+    if int(macro_features.get("output_type", 4)) not in {1, 2, 3, 4}:
+        raise ValueError("macro_features.output_type must be one of 1, 2, 3, or 4")
+    known_transforms = {
+        "level",
+        "change_20d",
+        "change_60d",
+        "change_3m",
+        "pct_change_20d",
+        "pct_change_60d",
+        "yoy",
+        "zscore_60d",
+    }
+    for spec in macro_features.get("series", []):
+        if not spec.get("id"):
+            raise ValueError("macro_features.series entries require id")
+        transforms = set(spec.get("transforms", ["level", "change_20d", "change_60d"]))
+        invalid = transforms - known_transforms
+        if invalid:
+            raise ValueError(f"macro_features.series {spec.get('id')} unsupported transform(s): {', '.join(sorted(invalid))}")
+        if int(spec.get("max_staleness_days", 370)) <= 0:
+            raise ValueError(f"macro_features.series {spec.get('id')} max_staleness_days must be positive")
+    for spec in macro_features.get("derived", []):
+        if spec.get("operation") != "subtract":
+            raise ValueError("macro_features.derived currently supports operation: subtract")
+        if not spec.get("name") or not spec.get("left") or not spec.get("right"):
+            raise ValueError("macro_features.derived entries require name, left, and right")
+        invalid = set(spec.get("transforms", ["level"])) - known_transforms
+        if invalid:
+            raise ValueError(f"macro_features.derived {spec.get('name')} unsupported transform(s): {', '.join(sorted(invalid))}")
+
+
 def date_value(value: Any) -> pd.Timestamp:
     if isinstance(value, str) and value == "latest":
         return pd.Timestamp.today().normalize()
@@ -442,6 +488,10 @@ def build_paths(config: dict[str, Any]) -> dict[str, Path]:
         "edgar_cik_map": output_dir / "edgar_cik_map.csv",
         "market_features": output_dir / "market_features.parquet",
         "market_feature_failures": output_dir / "market_feature_failures.csv",
+        "macro_raw_observations": output_dir / "macro_raw_observations.parquet",
+        "macro_asof_observations": output_dir / "macro_asof_observations.parquet",
+        "macro_features": output_dir / "macro_features.parquet",
+        "macro_failures": output_dir / "macro_failures.csv",
         "industry_features": output_dir / "industry_features.parquet",
         "industry_failures": output_dir / "industry_failures.csv",
         "predictions_csv": output_dir / "predictions.csv",
@@ -482,6 +532,9 @@ def build_paths(config: dict[str, Any]) -> dict[str, Path]:
     fundamentals = config.get("fundamentals", {})
     cache_dir = fundamentals.get("cache_dir") if fundamentals else None
     paths["edgar_cache_dir"] = resolve_path(cache_dir) if cache_dir else output_dir / "edgar_cache"
+    macro_features = config.get("macro_features", {})
+    macro_cache_dir = macro_features.get("cache_dir") if macro_features else None
+    paths["macro_cache_dir"] = resolve_path(macro_cache_dir) if macro_cache_dir else output_dir / "fred_alfred_cache"
     return paths
 
 
@@ -654,6 +707,7 @@ def train_and_predict(
     )
     fundamental_result = None
     market_feature_result = None
+    macro_result = None
     industry_result = None
     extra_feature_frames: list[pd.DataFrame] = []
     if config.get("market_features", {}).get("enabled", False):
@@ -664,6 +718,10 @@ def train_and_predict(
         print("Building SEC EDGAR point-in-time fundamental features...")
         fundamental_result = build_fundamental_features(universe, config, paths)
         extra_feature_frames.append(fundamental_result.features)
+    if config.get("macro_features", {}).get("enabled", False):
+        print("Building FRED/ALFRED point-in-time macro features...")
+        macro_result = build_macro_feature_frame(universe, config, paths)
+        extra_feature_frames.append(macro_result.features)
     if config.get("industry", {}).get("enabled", False):
         print("Building industry-relative fundamental features...")
         if fundamental_result is None:
@@ -758,6 +816,10 @@ def train_and_predict(
         "market_feature_count": 0 if market_feature_result is None else int(market_feature_result.features.shape[1]),
         "market_feature_failure_count": 0 if market_feature_result is None else int(len(market_feature_result.failures)),
         "market_feature_coverage": {} if market_feature_result is None else market_feature_result.coverage,
+        "macro_features_enabled": bool(config.get("macro_features", {}).get("enabled", False)),
+        "macro_feature_count": 0 if macro_result is None else int(macro_result.features.shape[1]),
+        "macro_failure_count": 0 if macro_result is None else int(len(macro_result.failures)),
+        "macro_feature_coverage": {} if macro_result is None else macro_result.coverage,
         "industry_enabled": bool(config.get("industry", {}).get("enabled", False)),
         "industry_feature_count": 0 if industry_result is None else int(industry_result.features.shape[1]),
         "industry_failure_count": 0 if industry_result is None else int(len(industry_result.failures)),
@@ -1464,6 +1526,22 @@ def write_report(
             else ["- 未启用。"]
         ),
         "",
+        "## 宏观特征",
+        "",
+        *(
+            [
+                *format_yaml_block(config.get("macro_features", {})),
+                f"- 宏观特征数量：{meta.get('macro_feature_count', 0)}",
+                f"- 宏观特征失败或跳过数量：{meta.get('macro_failure_count', 0)}",
+                "- 宏观特征覆盖：",
+                *format_yaml_block(meta.get("macro_feature_coverage", {})),
+                "",
+                "宏观特征按 FRED/ALFRED 的 real-time/vintage 口径重建 as-of 序列，并顺延到下一个交易日后才进入模型。它是所有股票共享的市场状态变量，不单独决定横截面排名。",
+            ]
+            if config.get("macro_features", {}).get("enabled", False)
+            else ["- 未启用。"]
+        ),
+        "",
         "## 标签与特征",
         "",
         f"- 标签名：`{config['label']['name']}`",
@@ -1558,6 +1636,8 @@ def write_report(
             f"- EDGAR 失败或跳过数量：{meta.get('fundamental_failure_count', 0)}",
             f"- 行业相对特征数量：{meta.get('industry_feature_count', 0)}",
             f"- 行业分类失败或跳过数量：{meta.get('industry_failure_count', 0)}",
+            f"- 宏观特征数量：{meta.get('macro_feature_count', 0)}",
+            f"- 宏观特征失败或跳过数量：{meta.get('macro_failure_count', 0)}",
             "",
             "IC 可以粗略理解为：每个交易日横截面上，模型预测分数和真实后续收益的相关性。",
             "",
@@ -1749,6 +1829,10 @@ def write_report(
             "- `edgar_cik_map.csv`：本次股票池 ticker 到 SEC CIK 的映射。",
             "- `market_features.parquet`：日频 PIT 行情派生特征和 sector / industry 内相对特征。",
             "- `market_feature_failures.csv`：行情相对特征失败原因。",
+            "- `macro_raw_observations.parquet`：FRED/ALFRED 原始 observation 与 real-time/vintage 记录。",
+            "- `macro_asof_observations.parquet`：按交易日重建的 PIT 宏观 as-of 序列。",
+            "- `macro_features.parquet`：广播到 `(datetime, instrument)` 的日频宏观特征。",
+            "- `macro_failures.csv`：宏观序列下载、解析或缺失记录。",
             "- `industry_features.parquet`：行业内 rank / percentile 特征；仅启用行业特征时生成有效内容。",
             "- `industry_failures.csv`：sector / industry 缺失或 rank 字段缺失记录。",
             "- `predictions.csv`：最新日全部模型分数。",
@@ -1819,7 +1903,7 @@ def main() -> None:
         predictions, meta = train_and_predict(universe, config, paths)
         meta.update(liquidity_meta)
     except DataSourceUnavailable as exc:
-        raise SystemExit(f"Fundamental data unavailable: {exc}") from None
+        raise SystemExit(f"Feature data unavailable: {exc}") from None
     write_report(predictions, meta, failures, config, paths)
     print(f"Qlib model top {config['report']['top_n']}:")
     preview_columns = [

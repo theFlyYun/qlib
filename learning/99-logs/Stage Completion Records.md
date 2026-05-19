@@ -2966,3 +2966,92 @@ learning/00-start-here/Qlib Quant Learning Index.md
 learning/99-logs/Qlib Learning Log.md
 learning/99-logs/Stage Completion Records.md
 ```
+
+## 2026-05-19 阶段 E.4：FRED/ALFRED 宏观特征接入
+
+目标：
+
+把宏观经济状态作为模型输入，并按严格 PIT 口径控制未来函数。
+
+为什么要做：
+
+当前模型主要依赖价格成交量、财报估值、行业和行情相对特征。它还不知道市场处在高利率、曲线倒挂、通胀上行、信用压力扩大或风险偏好恶化等宏观状态。加入宏观特征可以帮助模型学习不同市场环境下哪些个股信号更可靠。
+
+输入数据：
+
+```text
+FRED/ALFRED observations
+FRED realtime_start / realtime_end
+当前 frozen Nasdaq Top500 交易日历
+现有 Alpha158 / EDGAR / market_features 特征矩阵
+```
+
+核心概念：
+
+```text
+FRED：当前宏观序列数据库
+ALFRED：历史 vintage / real-time 宏观数据库
+observation_date：数据对应的经济时期
+realtime_start：数据当时可见的日期
+effective_date：顺延到下一个交易日后的模型可用日期
+forward fill：已公开宏观数据在下一次发布前继续沿用
+```
+
+实验动作：
+
+```text
+新增 macro_features 配置层
+新增 FRED/ALFRED 宏观适配器
+按 realtime_start 重建 as-of 宏观状态
+生成 macro_raw_observations.parquet / macro_asof_observations.parquet / macro_features.parquet
+把 macro_features 与 Alpha158、EDGAR、market_features 拼接进 LightGBM
+新增宏观增强 frozen 配置和学习文档
+```
+
+评价指标：
+
+```text
+单元测试验证披露日前不可见
+单元测试验证旧观察值修订不会覆盖更新观察期
+单元测试验证日频数据也至少滞后一交易日
+单元测试验证 max_staleness_days 会阻止过旧数据继续 forward fill
+配置可解析，脚本可编译
+```
+
+结果解读：
+
+```text
+本阶段先完成工程接入和 PIT 口径验证。
+尚未真实下载 FRED/ALFRED 并训练完整模型，因为需要 FRED_API_KEY。
+宏观特征不是直接排序因子，而是市场状态变量。
+```
+
+遗留问题：
+
+```text
+需要用户设置 FRED_API_KEY 后跑真实宏观增强实验
+第一版没有区分盘前、盘中、盘后发布时间
+第一版默认 output_type=4 initial release only，后续可进一步扩展更完整的 vintage 查询
+```
+
+下一阶段准备：
+
+```text
+设置 FRED_API_KEY
+运行宏观增强 frozen 配置
+对比无宏观 baseline 的 IC、Rank IC、TopK 回测和行业暴露
+如果宏观变量有效，再做“宏观状态 × 行业/估值/动量”的交互特征
+```
+
+产出文件：
+
+```text
+analysis/nasdaq_top500_score/macro_features.py
+analysis/nasdaq_top500_score/run_qlib_alpha158_lightgbm.py
+analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_macro_lgbm_10y_frozen_2023_top500_5d_pit_safe.yaml
+tests/analysis/test_macro_features.py
+learning/05-data-expansion/FRED ALFRED Macro Features Integration.md
+learning/00-start-here/Qlib Commands.md
+learning/99-logs/Qlib Learning Log.md
+learning/99-logs/Stage Completion Records.md
+```

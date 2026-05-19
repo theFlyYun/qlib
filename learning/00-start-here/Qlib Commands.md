@@ -134,6 +134,16 @@ export SEC_EDGAR_USER_AGENT="Your Name your-email@example.com"
   --config analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_lgbm_10y_frozen_2023_top500_5d_pit_safe.yaml
 ```
 
+运行同一冻结股票池、加入 FRED/ALFRED 宏观特征的 5 日 Top10 回测：
+
+```bash
+export SEC_EDGAR_USER_AGENT="Your Name your-email@example.com"
+export FRED_API_KEY="your-fred-api-key"
+
+.venv/bin/python -u analysis/nasdaq_top500_score/run_qlib_alpha158_lightgbm.py \
+  --config analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_macro_lgbm_10y_frozen_2023_top500_5d_pit_safe.yaml
+```
+
 如果只是复盘行业约束、TopK 或错误样本，不想重新训练模型，可以把配置中的 `training.reuse_test_predictions` 临时改为 `true`。这会复用当前 run 目录里的 `test_predictions.csv`：
 
 ```yaml

@@ -22,7 +22,7 @@
 2. 信号与标签：[[Alpha158 And Features]]、[[Labels And Future Returns]]、[[Five Day Future Return Label]]、[[IC And Rank IC]]
 3. 模型：[[LightGBM Training Notes]]、[[Model Validation]]、[[Experiment Reproducibility And Prediction Cache]]
 4. 策略回测：[[TopK Strategy]]、[[Backtest And Costs]]、[[TopK Cost Backtest]]、[[PIT Safe Backtest]]、[[Future Information Audit]]、[[Benchmark And Excess Return Review]]、[[Position Contribution And Exposure Review]]
-5. 数据扩展：[[Data Source Upgrade Plan]]、[[Fixed Window And Real EDGAR Runbook]]、[[Norgate Data Integration]]、[[SEC EDGAR Fundamentals Integration]]、[[SEC EDGAR Technical Data Flow]]、[[Short History Evaluation And EDGAR Full Run]]、[[Stock Pool Cleaning And History Buckets]]、[[Security Master Data]]、[[Liquidity Filtering]]、[[Industry Features And Relative Ranking]]、[[Market Derived Relative Features]]、[[Data Scope And Sources]]、[[Financial Valuation Industry Macro News]]
+5. 数据扩展：[[Data Source Upgrade Plan]]、[[Fixed Window And Real EDGAR Runbook]]、[[Norgate Data Integration]]、[[SEC EDGAR Fundamentals Integration]]、[[SEC EDGAR Technical Data Flow]]、[[FRED ALFRED Macro Features Integration]]、[[Short History Evaluation And EDGAR Full Run]]、[[Stock Pool Cleaning And History Buckets]]、[[Security Master Data]]、[[Liquidity Filtering]]、[[Industry Features And Relative Ranking]]、[[Market Derived Relative Features]]、[[Data Scope And Sources]]、[[Financial Valuation Industry Macro News]]
 6. 组合风控：[[Industry Neutralization]]、[[Industry Exposure Strategy Comparison]]、[[Industry Constraint Sensitivity]]、[[Within Sector Stock Selection Review]]、[[Sector Specific Error Review]]、[[Short History Score Calibration]]、[[Short History Stock Review]]、[[Portfolio Risk Control]]
 7. 案例复盘：[[2026-05-17 Nasdaq Qlib Model]]、[[Sifang 601126 Case Study]]
 
@@ -79,6 +79,7 @@
 [[Norgate Data Integration]]
 [[SEC EDGAR Fundamentals Integration]]
 [[SEC EDGAR Technical Data Flow]]
+[[FRED ALFRED Macro Features Integration]]
 [[Short History Evaluation And EDGAR Full Run]]
 [[Stock Pool Cleaning And History Buckets]]
 [[Security Master Data]]

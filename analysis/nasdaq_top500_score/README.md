@@ -204,6 +204,22 @@ lt_2y：持仓 105 次，平均收益 0.57%，胜率 51.43%，净贡献 5.25%。
 
 结论：短历史股票整体不是净拖累。明显负贡献集中在 `2_5y / Finance`，而 `2_5y / Basic Materials`、`2_5y / Industrials`、`lt_2y / Industrials` 是正贡献来源。下一步更适合做 sector-specific 短历史约束，而不是统一剔除或继续加大短历史惩罚。
 
+FRED/ALFRED 宏观特征增强配置：
+
+```text
+analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_macro_lgbm_10y_frozen_2023_top500_5d_pit_safe.yaml
+```
+
+这版在 Alpha158、EDGAR 和 `market_features` 之外，加入利率、收益率曲线、通胀、就业、工业产出、信用利差、VIX、油价和美元指数等宏观状态特征。宏观数据按 `realtime_start` 重建 as-of 序列，并默认顺延到下一个交易日后才进入模型，避免把发布前或最终修订后的数据提前喂给模型。
+
+```bash
+export SEC_EDGAR_USER_AGENT="Your Name your-email@example.com"
+export FRED_API_KEY="your-fred-api-key"
+
+.venv/bin/python -u analysis/nasdaq_top500_score/run_qlib_alpha158_lightgbm.py \
+  --config analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_macro_lgbm_10y_frozen_2023_top500_5d_pit_safe.yaml
+```
+
 同一配置还会生成持仓贡献和行业暴露复盘：
 
 ```text
@@ -350,6 +366,8 @@ runs/nasdaq_alpha158_lgbm_1d/qlib_data/
 Norgate 配置会额外生成 `membership.csv`，记录每只股票在每个交易日是否属于历史指数成分。
 
 EDGAR 配置会额外生成 `fundamental_features.parquet`、`fundamental_failures.csv` 和 `edgar_cik_map.csv`。
+
+FRED/ALFRED 宏观配置会额外生成 `macro_raw_observations.parquet`、`macro_asof_observations.parquet`、`macro_features.parquet` 和 `macro_failures.csv`。
 
 行业配置会额外生成 `industry_features.parquet` 和 `industry_failures.csv`。
 
