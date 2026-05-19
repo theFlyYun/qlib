@@ -190,6 +190,118 @@ learning/03-modeling/Model Validation.md
 learning/99-logs/Stage Completion Records.md
 ```
 
+## 2026-05-19 阶段 5.8C：短历史 score 校准
+
+目标：
+
+```text
+验证“短历史股票高分输家偏多”是否可以通过选股层 score 校准改善。
+不重新训练模型，只复用同一份 test_predictions.csv。
+```
+
+为什么要做：
+
+```text
+5.7C 和 5.8B 都显示短历史股票仍是错误来源之一。
+但短历史股票也可能包含真实机会，不能直接全部排除。
+本阶段要区分：轻度惩罚是否更稳，严格门槛是否会过度损失收益。
+```
+
+输入数据：
+
+```text
+as-of 2023-12-31 近似冻结 Nasdaq Top500
+2016-05-17 到 2026-05-17 日线数据
+SEC EDGAR 财报特征
+行情派生相对特征
+当前 frozen run 的 test_predictions.csv
+```
+
+核心概念：
+
+```text
+raw_score：模型原始预测分数
+adjusted_score：选股层校准后的分数
+短历史惩罚：按 history_bucket 对 score 扣分
+严格流动性门槛：仅对 lt_2y 股票增加更高可交易性要求
+```
+
+实验动作：
+
+```text
+新增 score_calibration 配置。
+TopK / bucket ranking / strategy_comparison 支持使用 adjusted_score 排名。
+回测持仓同时保留 score、raw_score、adjusted_score 和 score_bucket_penalty。
+新增三组对照：
+raw_score_sector_cap_2_top10
+short_history_penalty_sector_cap_2_top10
+short_history_strict_sector_cap_2_top10
+```
+
+评价指标：
+
+```text
+累计收益
+年化收益
+最大回撤
+相对 NASDAQCOM 超额收益
+年化 alpha
+短历史股票持仓次数
+```
+
+结果解读：
+
+```text
+raw_score_sector_cap_2_top10：
+累计收益 97.56%，年化收益 33.75%，最大回撤 -29.36%，超额累计收益 10.51%。
+
+short_history_penalty_sector_cap_2_top10：
+累计收益 94.44%，年化收益 32.85%，最大回撤 -28.77%，超额累计收益 8.76%。
+
+short_history_strict_sector_cap_2_top10：
+累计收益 82.86%，年化收益 29.41%，最大回撤 -29.08%，超额累计收益 2.28%。
+```
+
+当前判断：
+
+```text
+轻度短历史惩罚略微改善最大回撤，但没有提升收益。
+严格短历史惩罚 + 更高流动性门槛明显降低超额收益。
+短历史股票不能简单重罚；第一版 score 校准更适合作为保守对照，不建议设为默认主策略。
+```
+
+遗留问题：
+
+```text
+短历史股票内部仍未拆解：哪些是有效机会，哪些是主要亏损来源。
+短历史有效性可能有行业差异，需要 sector-specific 复盘。
+当前仍缺少真实历史 shares outstanding、退市股票和 PIT 行业历史分类。
+```
+
+下一阶段准备：
+
+```text
+建议做短历史股票专项复盘：
+按 lt_2y / 2_5y 分桶拆解赢家和输家。
+检查亏损是否集中于低流动性、高估值、亏损公司、财报披露附近或特定行业。
+如果差异明显，再做 sector-specific 短历史名额或惩罚规则。
+```
+
+产出文件：
+
+```text
+analysis/nasdaq_top500_score/selection/history_buckets.py
+analysis/nasdaq_top500_score/backtest.py
+analysis/nasdaq_top500_score/run_qlib_alpha158_lightgbm.py
+analysis/nasdaq_top500_score/configs/nasdaq_alpha158_edgar_lgbm_10y_frozen_2023_top500_5d_pit_safe.yaml
+tests/analysis/test_stock_pool_selection.py
+learning/06-portfolio-risk/Short History Score Calibration.md
+learning/00-start-here/Qlib Commands.md
+learning/00-start-here/Qlib Quant Learning Index.md
+learning/99-logs/Qlib Learning Log.md
+learning/99-logs/Stage Completion Records.md
+```
+
 ## 2026-05-18 第 5.2 条：未来函数审计与 as-of 冻结股票池
 
 目标：

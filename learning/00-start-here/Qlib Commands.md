@@ -163,6 +163,9 @@ strategy_comparison/sector_cap_2_top10/
 strategy_comparison/sector_cap_3_top10/
 strategy_comparison/sector_cap_4_top10/
 strategy_comparison/sector_momentum_tilt_top10/
+strategy_comparison/raw_score_sector_cap_2_top10/
+strategy_comparison/short_history_penalty_sector_cap_2_top10/
+strategy_comparison/short_history_strict_sector_cap_2_top10/
 within_sector_daily_metrics.csv
 within_sector_summary.csv
 within_industry_summary.csv
@@ -175,6 +178,21 @@ sector_error_review_summary.yaml
 market_features.parquet
 market_feature_failures.csv
 report.md
+```
+
+5.8C 短历史 score 校准使用同一份 `test_predictions.csv`，只改变选股排序：
+
+```text
+raw_score = 模型原始分数
+adjusted_score = raw_score - 短历史惩罚
+```
+
+主结论看 `strategy_comparison.csv` 中这三行：
+
+```text
+raw_score_sector_cap_2_top10
+short_history_penalty_sector_cap_2_top10
+short_history_strict_sector_cap_2_top10
 ```
 
 运行真实 EDGAR smoke test 前先设置 User-Agent：

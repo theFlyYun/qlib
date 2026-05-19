@@ -8,6 +8,7 @@ from analysis.nasdaq_top500_score.data_sources.nasdaq_public import select_appro
 from analysis.nasdaq_top500_score.selection import (
     apply_bucket_ranking,
     apply_liquidity_filter,
+    apply_score_calibration,
     apply_security_master_filter,
     build_history_buckets,
     clean_stock_universe,
@@ -315,6 +316,79 @@ def test_bucketed_top10_allows_tilted_sector_extra_slot() -> None:
 
     assert selected["sector"].value_counts().to_dict()["Technology"] == 4
     assert selected["sector"].value_counts().to_dict()["Health Care"] == 3
+
+
+def test_score_calibration_penalizes_short_history_without_overwriting_raw_score() -> None:
+    predictions = pd.DataFrame(
+        [
+            {"symbol": "NEW", "score": 0.05, "history_bucket": "lt_2y"},
+            {"symbol": "FULL", "score": 0.03, "history_bucket": "full_10y"},
+        ]
+    )
+    config = {
+        "score_calibration": {
+            "enabled": True,
+            "bucket_penalties": {"full_10y": 0.0, "lt_2y": 0.04},
+        }
+    }
+
+    calibrated = apply_score_calibration(predictions, config)
+    selected = select_bucketed_top(
+        calibrated,
+        {"quotas": {"full_10y": 1, "5_10y": 0, "2_5y": 0, "lt_2y": 1}, "refill_order": ["full_10y", "lt_2y"]},
+        2,
+    )
+
+    by_symbol = calibrated.set_index("symbol")
+    assert by_symbol.loc["NEW", "raw_score"] == 0.05
+    assert round(float(by_symbol.loc["NEW", "adjusted_score"]), 6) == 0.01
+    assert selected["symbol"].tolist() == ["FULL", "NEW"]
+
+
+def test_score_calibration_strict_gate_skips_low_liquidity_short_history() -> None:
+    predictions = pd.DataFrame(
+        [
+            {
+                "symbol": "LOWLIQ",
+                "score": 0.10,
+                "history_bucket": "lt_2y",
+                "latest_close_asof": 5.0,
+                "avg_dollar_volume_20d_asof": 1_000_000,
+                "median_dollar_volume_60d_asof": 1_000_000,
+                "zero_volume_ratio_60d_asof": 0.0,
+                "recent_trading_days_60d_asof": 60,
+            },
+            {
+                "symbol": "LIQ",
+                "score": 0.04,
+                "history_bucket": "lt_2y",
+                "latest_close_asof": 20.0,
+                "avg_dollar_volume_20d_asof": 20_000_000,
+                "median_dollar_volume_60d_asof": 12_000_000,
+                "zero_volume_ratio_60d_asof": 0.0,
+                "recent_trading_days_60d_asof": 60,
+            },
+        ]
+    )
+    config = {
+        "score_calibration": {
+            "enabled": True,
+            "bucket_penalties": {"lt_2y": 0.0},
+            "strict_liquidity_gate": {
+                "enabled": True,
+                "buckets": ["lt_2y"],
+                "min_latest_close": 2.0,
+                "min_avg_dollar_volume_20d": 10_000_000,
+                "min_median_dollar_volume_60d": 5_000_000,
+                "max_zero_volume_ratio_60d": 0.02,
+                "min_recent_trading_days_60d": 40,
+            },
+        }
+    }
+
+    calibrated = apply_score_calibration(predictions, config)
+
+    assert calibrated["symbol"].tolist() == ["LIQ"]
 
 
 def test_apply_bucket_ranking_writes_bucket_outputs(tmp_path: Path) -> None:

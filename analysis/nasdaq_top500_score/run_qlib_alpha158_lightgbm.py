@@ -743,6 +743,8 @@ def train_and_predict(
         "industry_constraints": bucket_meta.get("industry_constraints", {}),
         "selected_sector_counts": bucket_meta.get("selected_sector_counts", {}),
         "selected_industry_counts": bucket_meta.get("selected_industry_counts", {}),
+        "score_calibration_enabled": bool(bucket_meta.get("score_calibration_enabled", False)),
+        "score_calibration_exclusion_count": int(bucket_meta.get("score_calibration_exclusion_count", 0)),
         "top_sector_counts": top_predictions["sector"].fillna("UNKNOWN").value_counts().to_dict()
         if "sector" in top_predictions
         else {},
@@ -807,7 +809,7 @@ def build_strategy_variant_config(config: dict[str, Any], variant: dict[str, Any
     if "experiment" in variant_config:
         base_name = config.get("experiment", {}).get("name", "strategy_comparison")
         variant_config["experiment"]["name"] = f"{base_name}__{variant_name}"
-    for key in ["bucket_ranking", "backtest", "benchmark", "attribution"]:
+    for key in ["bucket_ranking", "backtest", "benchmark", "attribution", "score_calibration"]:
         if key in variant:
             variant_config[key] = deep_merge_dicts(variant_config.get(key, {}), variant[key])
     if "industry_constraints" in variant:
@@ -859,12 +861,15 @@ def summarize_strategy_variant(
     benchmark = summary.get("benchmark", {})
     concentration = sector_concentration_stats(result.positions)
     constraints = variant.get("industry_constraints", {})
+    calibration = variant.get("score_calibration", {})
     return {
         "name": str(variant["name"]),
         "description": str(variant.get("description", "")),
         "output_dir": str(variant_paths["output_dir"]),
         "industry_constraints_enabled": bool(constraints.get("enabled", False)),
         "sector_momentum_tilt_enabled": bool(constraints.get("sector_momentum_tilt", {}).get("enabled", False)),
+        "score_calibration_enabled": bool(calibration.get("enabled", False)),
+        "score_calibration_method": calibration.get("method"),
         "max_sector": constraints.get("max_sector"),
         "max_industry": constraints.get("max_industry"),
         "period_count": summary.get("period_count"),
@@ -906,6 +911,8 @@ def is_sector_cap_sensitivity_row(row: dict[str, Any]) -> bool:
     name = str(row.get("name", ""))
     if name in {"sector_cap_2_top10", "sector_cap_3_top10", "sector_cap_4_top10"}:
         return True
+    if bool(row.get("score_calibration_enabled")):
+        return False
     return (
         bool(row.get("industry_constraints_enabled"))
         and not bool(row.get("sector_momentum_tilt_enabled"))
@@ -1125,15 +1132,17 @@ def strategy_comparison_report_lines(summary: dict[str, Any]) -> list[str]:
         return ["- 已启用，但没有生成策略对照结果。"]
 
     lines = [
-        "| Variant | 规则 | Max Sector | 累计收益 | 年化收益 | 最大回撤 | 超额累计收益 | 年化 Alpha | Beta | 最大平均 sector 暴露 | Sector HHI |",
-        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| Variant | 规则 | Score 校准 | Max Sector | 累计收益 | 年化收益 | 最大回撤 | 超额累计收益 | 年化 Alpha | Beta | 最大平均 sector 暴露 | Sector HHI |",
+        "|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for row in rows:
         rule = "行业增强" if row.get("sector_momentum_tilt_enabled") else "行业约束" if row.get("industry_constraints_enabled") else "不限制行业"
+        calibration = "短历史校准" if row.get("score_calibration_enabled") else "无"
         lines.append(
-            "| {name} | {rule} | {max_sector} | {cum} | {ann} | {dd} | {excess} | {alpha} | {beta} | {sector} {sector_weight} | {hhi} |".format(
+            "| {name} | {rule} | {calibration} | {max_sector} | {cum} | {ann} | {dd} | {excess} | {alpha} | {beta} | {sector} {sector_weight} | {hhi} |".format(
                 name=row.get("name", "N/A"),
                 rule=rule,
+                calibration=calibration,
                 max_sector=fmt_optional_int(row.get("max_sector")),
                 cum=fmt_pct(row.get("cumulative_return")),
                 ann=fmt_pct(row.get("annualized_return")),
@@ -1153,6 +1162,9 @@ def strategy_comparison_report_lines(summary: dict[str, Any]) -> list[str]:
     cap3 = by_name.get("sector_cap_3_top10") or by_name.get("sector_capped_top10")
     cap4 = by_name.get("sector_cap_4_top10")
     tilted = by_name.get("sector_momentum_tilt_top10")
+    raw_cap2 = by_name.get("raw_score_sector_cap_2_top10")
+    penalty_cap2 = by_name.get("short_history_penalty_sector_cap_2_top10")
+    strict_cap2 = by_name.get("short_history_strict_sector_cap_2_top10")
     lines.extend(["", "对照解读："])
     if unconstrained and cap3:
         lines.append(
@@ -1169,6 +1181,14 @@ def strategy_comparison_report_lines(summary: dict[str, Any]) -> list[str]:
     if cap3 and tilted:
         lines.append(
             f"- 行业增强相对 max_sector=3 的年化收益变化：{fmt_delta_pct(metric_delta(tilted, cap3, 'annualized_return'))}；超额累计收益变化：{fmt_delta_pct(metric_delta(tilted, cap3, 'excess_cumulative_return'))}。"
+        )
+    if raw_cap2 and penalty_cap2:
+        lines.append(
+            f"- 短历史惩罚相对原始 max_sector=2 的年化收益变化：{fmt_delta_pct(metric_delta(penalty_cap2, raw_cap2, 'annualized_return'))}；最大回撤变化：{fmt_delta_pct(metric_delta(penalty_cap2, raw_cap2, 'max_drawdown'))}。"
+        )
+    if raw_cap2 and strict_cap2:
+        lines.append(
+            f"- 短历史惩罚 + 更高流动性门槛相对原始 max_sector=2 的年化收益变化：{fmt_delta_pct(metric_delta(strict_cap2, raw_cap2, 'annualized_return'))}；超额累计收益变化：{fmt_delta_pct(metric_delta(strict_cap2, raw_cap2, 'excess_cumulative_return'))}。"
         )
     insights = summary.get("insights", {})
     if insights.get("enabled", False):

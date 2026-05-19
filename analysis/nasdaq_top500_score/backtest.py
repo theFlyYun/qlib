@@ -16,13 +16,13 @@ try:
     from .data_sources.base import parse_float
     from .data_sources.nasdaq_public import NASDAQ_HISTORICAL_URL, fetch_json, nasdaq_history_window
     from .selection import select_bucketed_top
-    from .selection.history_buckets import assign_history_bucket
+    from .selection.history_buckets import apply_score_calibration, assign_history_bucket, ranking_score_column
     from .selection.liquidity import liquidity_exclusion_reason
 except ImportError:  # pragma: no cover - supports running the pipeline as a script.
     from data_sources.base import parse_float
     from data_sources.nasdaq_public import NASDAQ_HISTORICAL_URL, fetch_json, nasdaq_history_window
     from selection import select_bucketed_top
-    from selection.history_buckets import assign_history_bucket
+    from selection.history_buckets import apply_score_calibration, assign_history_bucket, ranking_score_column
     from selection.liquidity import liquidity_exclusion_reason
 
 
@@ -127,6 +127,9 @@ def run_topk_backtest(
                     "sector": row.get("sector"),
                     "industry": row.get("industry"),
                     "score": row.get("score"),
+                    "raw_score": row.get("raw_score", row.get("score")),
+                    "adjusted_score": row.get("adjusted_score", row.get("score")),
+                    "score_bucket_penalty": row.get("score_bucket_penalty"),
                     "weight": weight,
                     "history_rows_asof": row.get("history_rows_asof"),
                     "latest_close_asof": row.get("latest_close_asof"),
@@ -174,13 +177,19 @@ def select_for_signal_date(
     day = enriched[enriched["datetime"] == signal_date].copy()
     day = day.sort_values("score", ascending=False).reset_index(drop=True)
     day, filter_stats = apply_point_in_time_filters(day, signal_date, config, market_data or {})
+    before_calibration_count = len(day)
+    day = apply_score_calibration(day, config)
+    filter_stats["score_calibration_enabled"] = bool(config.get("score_calibration", {}).get("enabled", False))
+    filter_stats["score_calibration_exclusion_count"] = int(before_calibration_count - len(day))
+    score_column = ranking_score_column(day)
+    day = day.sort_values(score_column, ascending=False).reset_index(drop=True)
     day["global_rank"] = range(1, len(day) + 1)
     if day.empty:
         if "history_bucket" not in day.columns:
             day["history_bucket"] = pd.Series(dtype=object)
         day["bucket_rank"] = pd.Series(dtype=int)
     else:
-        day["bucket_rank"] = day.groupby("history_bucket")["score"].rank(method="first", ascending=False).astype(int)
+        day["bucket_rank"] = day.groupby("history_bucket")[score_column].rank(method="first", ascending=False).astype(int)
 
     ranking_config = config.get("bucket_ranking", {})
     if ranking_config.get("enabled", False):
@@ -873,6 +882,7 @@ def summarize_backtest(
         "candidate_count_after_pit",
         "pit_history_pass_count",
         "pit_liquidity_pass_count",
+        "score_calibration_exclusion_count",
     ]
     pit_stats = {
         f"avg_{column}": float(nav[column].mean())

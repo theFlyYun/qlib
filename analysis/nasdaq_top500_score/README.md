@@ -164,26 +164,36 @@ export SEC_EDGAR_USER_AGENT="Your Name your-email@example.com"
 training:
   seed: 20260519
   deterministic: true
-  reuse_test_predictions: false
+  reuse_test_predictions: true
 ```
 
-如果只做行业约束、TopK 或错误复盘，不希望重新训练 LightGBM，可以临时把 `reuse_test_predictions` 改成 `true`，流水线会复用当前 run 目录下已有的 `test_predictions.csv`。
+如果改特征、标签或模型参数，应把 `reuse_test_predictions` 改回 `false` 并重新训练。只做行业约束、TopK、错误复盘或短历史 score 校准时，保持 `true`，流水线会复用当前 run 目录下已有的 `test_predictions.csv`。
 
 该配置同时启用 `market_features`，从截至当日的 OHLCV 计算价格、成交额、动量、波动率、历史长度及其 sector / industry 内 percentile。当前数据源没有历史 shares outstanding，因此没有把真实历史市值作为模型输入，先用成交额和价格水平作为 size / liquidity 代理。
 
-已跑通结果：1000 只候选股票中 500 只进入冻结股票池。最近一次 5.8B 复跑的默认 Top10 策略成本后累计收益 `51.99%`，年化收益 `19.58%`，最大回撤 `-36.00%`。这比运行日市值股票池的 PIT 过滤版明显保守，说明股票池未来信息是旧回测收益异常高的重要来源。
+已跑通结果：1000 只候选股票中 500 只进入冻结股票池。最近一次 5.8C 复跑的默认 `sector_cap_4_top10` 策略成本后累计收益 `42.24%`，年化收益 `16.24%`，最大回撤 `-35.65%`。这比运行日市值股票池的 PIT 过滤版明显保守，说明股票池未来信息是旧回测收益异常高的重要来源。
 
 该配置同时启用 FRED `NASDAQCOM` 基准复盘。当前结果：
 
 ```text
-策略累计收益：51.99%
+策略累计收益：42.24%
 NASDAQCOM 基准累计收益：78.78%
-超额累计收益：-14.99%
-Beta：1.117
-年化 Alpha：-4.92%
+超额累计收益：-20.44%
+Beta：1.107
+年化 Alpha：-7.50%
 ```
 
 这说明冻结股票池后，策略虽然有绝对收益，但没有跑赢纳斯达克综合指数。
+
+5.8C 额外加入短历史 score 校准对照，复用同一份模型分数：
+
+```text
+raw_score_sector_cap_2_top10：累计收益 97.56%，年化收益 33.75%，最大回撤 -29.36%。
+short_history_penalty_sector_cap_2_top10：累计收益 94.44%，年化收益 32.85%，最大回撤 -28.77%。
+short_history_strict_sector_cap_2_top10：累计收益 82.86%，年化收益 29.41%，最大回撤 -29.08%。
+```
+
+第一版结论：短历史惩罚没有提升收益，只轻微改善回撤；严格门槛明显损失超额收益。因此短历史校准先作为保守对照，不建议直接作为默认主策略。
 
 同一配置还会生成持仓贡献和行业暴露复盘：
 

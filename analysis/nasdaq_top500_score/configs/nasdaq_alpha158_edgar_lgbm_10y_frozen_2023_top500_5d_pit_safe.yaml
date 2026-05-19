@@ -93,6 +93,10 @@ bucket_ranking:
     - 2_5y
     - lt_2y
 
+score_calibration:
+  enabled: false
+  method: bucket_penalty
+
 industry_constraints:
   enabled: true
   max_sector: 4
@@ -151,7 +155,7 @@ model:
 training:
   seed: 20260519
   deterministic: true
-  reuse_test_predictions: false
+  reuse_test_predictions: true
 
 report:
   top_n: 10
@@ -232,6 +236,54 @@ strategy_comparison:
           top_sector_count: 3
           extra_max_sector: 1
           max_sector_cap: 4
+    - name: raw_score_sector_cap_2_top10
+      output_dir_suffix: raw_score_sector_cap_2_top10
+      description: 5.8C 原始分数基线，使用 max_sector=2，不做短历史校准。
+      industry_constraints:
+        enabled: true
+        max_sector: 2
+        max_industry: 2
+      score_calibration:
+        enabled: false
+    - name: short_history_penalty_sector_cap_2_top10
+      output_dir_suffix: short_history_penalty_sector_cap_2_top10
+      description: 5.8C 短历史惩罚，保留 max_sector=2，降低短历史股票 adjusted_score。
+      industry_constraints:
+        enabled: true
+        max_sector: 2
+        max_industry: 2
+      score_calibration:
+        enabled: true
+        method: bucket_penalty
+        bucket_penalties:
+          full_10y: 0.0
+          5_10y: 0.0
+          2_5y: 0.015
+          lt_2y: 0.035
+    - name: short_history_strict_sector_cap_2_top10
+      output_dir_suffix: short_history_strict_sector_cap_2_top10
+      description: 5.8C 更严格短历史惩罚，对 lt_2y 额外启用更高流动性门槛。
+      industry_constraints:
+        enabled: true
+        max_sector: 2
+        max_industry: 2
+      score_calibration:
+        enabled: true
+        method: bucket_penalty
+        bucket_penalties:
+          full_10y: 0.0
+          5_10y: 0.0
+          2_5y: 0.02
+          lt_2y: 0.06
+        strict_liquidity_gate:
+          enabled: true
+          buckets:
+            - lt_2y
+          min_latest_close: 2.0
+          min_avg_dollar_volume_20d: 10000000
+          min_median_dollar_volume_60d: 5000000
+          max_zero_volume_ratio_60d: 0.02
+          min_recent_trading_days_60d: 40
 
 within_sector_review:
   enabled: true

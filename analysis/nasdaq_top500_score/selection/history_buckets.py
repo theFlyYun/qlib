@@ -27,6 +27,9 @@ DEFAULT_EXCLUDE_NAME_PATTERNS = {
 DEFAULT_EXCLUDE_SYMBOL_REGEXES = [r".*W$", r".*WS$", r".*WT$", r".*WW$"]
 UNIVERSE_EXCLUSION_COLUMNS = ["symbol", "name", "market_cap", "exclusion_reason"]
 HISTORY_BUCKET_COLUMNS = ["symbol", "history_rows", "first_date", "last_date", "history_bucket"]
+SCORE_COLUMN = "score"
+RAW_SCORE_COLUMN = "raw_score"
+ADJUSTED_SCORE_COLUMN = "adjusted_score"
 
 
 def clean_stock_universe(
@@ -145,8 +148,12 @@ def apply_bucket_ranking(
     history = pd.read_csv(paths["history_buckets_csv"])
     ranked = predictions.merge(history, on="symbol", how="left")
     ranked["history_bucket"] = ranked["history_bucket"].fillna("missing_history")
+    before_calibration_count = len(ranked)
+    ranked = apply_score_calibration(ranked, config)
+    score_column = ranking_score_column(ranked)
+    ranked = ranked.sort_values(score_column, ascending=False).reset_index(drop=True)
     ranked["global_rank"] = range(1, len(ranked) + 1)
-    ranked["bucket_rank"] = ranked.groupby("history_bucket")["score"].rank(method="first", ascending=False).astype(int)
+    ranked["bucket_rank"] = ranked.groupby("history_bucket")[score_column].rank(method="first", ascending=False).astype(int)
     ranked.to_csv(paths["bucketed_predictions_csv"], index=False)
 
     industry_constraints = config.get("industry_constraints", {})
@@ -162,7 +169,85 @@ def apply_bucket_ranking(
         "industry_constraints": industry_constraints if industry_constraints.get("enabled", False) else {},
         "selected_sector_counts": normalized_group_counts(selected, "sector"),
         "selected_industry_counts": normalized_group_counts(selected, "industry"),
+        "score_calibration_enabled": bool(config.get("score_calibration", {}).get("enabled", False)),
+        "score_calibration_exclusion_count": int(before_calibration_count - len(ranked)),
     }
+
+
+def ranking_score_column(frame: pd.DataFrame) -> str:
+    return ADJUSTED_SCORE_COLUMN if ADJUSTED_SCORE_COLUMN in frame.columns else SCORE_COLUMN
+
+
+def apply_score_calibration(predictions: pd.DataFrame, config: dict[str, Any]) -> pd.DataFrame:
+    calibration = config.get("score_calibration", {})
+    if not calibration.get("enabled", False):
+        return predictions.copy()
+
+    frame = predictions.copy()
+    frame[RAW_SCORE_COLUMN] = pd.to_numeric(frame.get(RAW_SCORE_COLUMN, frame[SCORE_COLUMN]), errors="coerce")
+    penalties = calibration.get("bucket_penalties", {})
+    frame["score_bucket_penalty"] = frame.get("history_bucket", pd.Series("", index=frame.index)).map(
+        lambda bucket: float(penalties.get(str(bucket), 0.0))
+    )
+    frame[ADJUSTED_SCORE_COLUMN] = frame[RAW_SCORE_COLUMN] - frame["score_bucket_penalty"]
+    frame["score_calibration_enabled"] = True
+    frame["score_calibration_gate_pass"] = True
+    frame["score_calibration_exclusion_reason"] = ""
+
+    gate = calibration.get("strict_liquidity_gate", {})
+    if gate.get("enabled", False):
+        gate_pass, reasons = score_calibration_gate_results(frame, gate)
+        frame["score_calibration_gate_pass"] = gate_pass
+        frame["score_calibration_exclusion_reason"] = reasons
+        if gate.get("drop_failed", True):
+            frame = frame[frame["score_calibration_gate_pass"]].copy()
+
+    return frame
+
+
+def score_calibration_gate_results(frame: pd.DataFrame, gate: dict[str, Any]) -> tuple[pd.Series, pd.Series]:
+    target_buckets = {str(bucket) for bucket in gate.get("buckets", [])}
+    if not target_buckets:
+        target_buckets = set(frame.get("history_bucket", pd.Series(dtype=object)).dropna().astype(str))
+
+    passes = []
+    reasons = []
+    for row in frame.to_dict("records"):
+        bucket = str(row.get("history_bucket", ""))
+        if bucket not in target_buckets:
+            passes.append(True)
+            reasons.append("")
+            continue
+        reason = score_calibration_gate_reason(row, gate)
+        passes.append(reason is None)
+        reasons.append(reason or "")
+    return pd.Series(passes, index=frame.index), pd.Series(reasons, index=frame.index)
+
+
+def score_calibration_gate_reason(row: dict[str, Any], gate: dict[str, Any]) -> str | None:
+    checks = [
+        ("min_latest_close", "latest_close_asof", ">="),
+        ("min_avg_dollar_volume_20d", "avg_dollar_volume_20d_asof", ">="),
+        ("min_median_dollar_volume_60d", "median_dollar_volume_60d_asof", ">="),
+        ("max_zero_volume_ratio_60d", "zero_volume_ratio_60d_asof", "<="),
+        ("min_recent_trading_days_60d", "recent_trading_days_60d_asof", ">="),
+    ]
+    for config_key, column, operator in checks:
+        if config_key not in gate:
+            continue
+        value = row.get(column)
+        try:
+            numeric = float(value)
+            threshold = float(gate[config_key])
+        except (TypeError, ValueError):
+            return f"missing:{column}"
+        if pd.isna(numeric):
+            return f"missing:{column}"
+        if operator == ">=" and numeric < threshold:
+            return f"{column} < {threshold:g}"
+        if operator == "<=" and numeric > threshold:
+            return f"{column} > {threshold:g}"
+    return None
 
 
 def select_bucketed_top(
@@ -171,6 +256,7 @@ def select_bucketed_top(
     top_n: int,
     industry_constraints: dict[str, Any] | None = None,
 ) -> pd.DataFrame:
+    score_column = ranking_score_column(predictions)
     quotas = normalized_quotas(ranking_config)
     selected_parts = []
     selected_symbols: set[str] = set()
@@ -200,7 +286,7 @@ def select_bucketed_top(
             selected_rows.extend(row for _, row in chosen.iterrows())
             shortfall = top_n - len(selected)
 
-    selected = selected.sort_values("score", ascending=False).head(top_n).reset_index(drop=True)
+    selected = selected.sort_values(score_column, ascending=False).head(top_n).reset_index(drop=True)
     selected["selected_rank"] = range(1, len(selected) + 1)
     return selected
 
@@ -280,7 +366,7 @@ def bucket_candidates(predictions: pd.DataFrame, bucket: str, selected_symbols: 
     candidates = predictions[predictions["history_bucket"] == bucket].copy()
     if selected_symbols:
         candidates = candidates[~candidates["symbol"].astype(str).isin(selected_symbols)]
-    return candidates.sort_values("score", ascending=False)
+    return candidates.sort_values(ranking_score_column(candidates), ascending=False)
 
 
 def normalized_quotas(ranking_config: dict[str, Any]) -> dict[str, int]:
