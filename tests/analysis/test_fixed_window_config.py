@@ -8,9 +8,11 @@ import pytest
 from analysis.nasdaq_top500_score.data_sources.nasdaq_public import nasdaq_history_window
 from analysis.nasdaq_top500_score.run_qlib_alpha158_lightgbm import (
     choose_segments,
+    cached_test_predictions_path,
     load_config,
     prediction_frame_to_series,
     read_test_predictions,
+    use_cached_test_predictions,
     validate_config,
 )
 
@@ -127,6 +129,52 @@ def test_training_control_validation_rejects_reuse_non_boolean() -> None:
         validate_config(config)
 
 
+def test_strict_pit_rejects_nasdaq_public_and_approximate_market_cap() -> None:
+    config = {
+        "experiment": {},
+        "universe": {
+            "exchange": "NASDAQ",
+            "top_n_by_market_cap": 500,
+            "selection": {"method": "approximate_market_cap_asof", "as_of_date": "2023-12-31"},
+        },
+        "data": {
+            "source": "nasdaq_public",
+            "start_date": "2016-05-17",
+            "end_date": "2026-05-17",
+            "freq": "day",
+            "vwap_method": "ohlc_mean",
+        },
+        "label": {},
+        "features": {"handler": "Alpha158"},
+        "split": {
+            "method": "date",
+            "warmup_days": 60,
+            "train": {"start": "2016-05-17", "end": "2021-12-31"},
+            "valid": {"start": "2022-01-01", "end": "2023-12-31"},
+            "test": {"start": "2024-01-01", "end": "2026-05-17"},
+        },
+        "model": {"class": "LGBModel"},
+        "report": {},
+        "strict_pit": {"enabled": True, "mode": "launch_pit_2023"},
+    }
+
+    with pytest.raises(ValueError, match="strict_pit.enabled forbids"):
+        validate_config(config)
+
+
+def test_strict_configs_parse_and_disable_current_snapshot_industry() -> None:
+    for path in [
+        Path("analysis/nasdaq_top500_score/configs/strict/strict_baseline_alpha158_edgar_5d.yaml"),
+        Path("analysis/nasdaq_top500_score/configs/strict/strict_macro_direct_5d.yaml"),
+        Path("analysis/nasdaq_top500_score/configs/strict/strict_macro_interactions_no_credit_5d.yaml"),
+    ]:
+        config = load_config(path)
+        assert config["strict_pit"]["enabled"] is True
+        assert config["data"]["source"] == "norgate"
+        assert config["market_features"]["group_levels"] == []
+        assert config["industry_constraints"]["enabled"] is False
+
+
 def test_cached_test_predictions_are_normalized_and_convert_to_series(tmp_path: Path) -> None:
     path = tmp_path / "test_predictions.csv"
     pd.DataFrame(
@@ -143,3 +191,13 @@ def test_cached_test_predictions_are_normalized_and_convert_to_series(tmp_path: 
     assert frame["instrument"].tolist() == ["AAPL", "MSFT"]
     assert series.index.names == ["datetime", "instrument"]
     assert series.loc[(pd.Timestamp("2024-01-02"), "AAPL")] == 0.12
+
+
+def test_reuse_test_predictions_path_enables_cached_predictions(tmp_path: Path) -> None:
+    path = tmp_path / "baseline_test_predictions.csv"
+    path.write_text("datetime,instrument,score\n2024-01-02,AAPL,0.1\n", encoding="utf-8")
+    config = {"training": {"reuse_test_predictions_path": str(path)}}
+    paths = {"test_predictions_csv": tmp_path / "run" / "test_predictions.csv"}
+
+    assert use_cached_test_predictions(config) is True
+    assert cached_test_predictions_path(config, paths) == path

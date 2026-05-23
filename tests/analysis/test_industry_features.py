@@ -26,6 +26,8 @@ def make_paths(tmp_path: Path) -> dict[str, Path]:
     return {
         "industry_features": tmp_path / "industry_features.parquet",
         "industry_failures": tmp_path / "industry_failures.csv",
+        "industry_master": tmp_path / "industry_master.parquet",
+        "edgar_relative_feature_coverage": tmp_path / "edgar_relative_feature_coverage.csv",
     }
 
 
@@ -99,6 +101,52 @@ def test_missing_rank_feature_is_recorded(tmp_path: Path) -> None:
     failures = result.failures.set_index(["error", "detail"])
     assert ("missing_rank_feature", "edgar_missing_metric") in failures.index
     assert "industry_pct_missing_metric" in result.features.columns
+
+
+def test_industry_percentile_can_use_pit_industry_master(tmp_path: Path) -> None:
+    paths = make_paths(tmp_path)
+    pd.DataFrame(
+        [
+            {
+                "instrument": "AAA",
+                "effective_start": "2024-01-01",
+                "effective_end": "2024-01-31",
+                "sector": "73",
+                "industry": "7372",
+                "is_pit": True,
+            },
+            {
+                "instrument": "BBB",
+                "effective_start": "2024-01-01",
+                "effective_end": "2024-01-31",
+                "sector": "73",
+                "industry": "7372",
+                "is_pit": True,
+            },
+            {
+                "instrument": "CCC",
+                "effective_start": "2024-02-01",
+                "effective_end": "2024-02-28",
+                "sector": "73",
+                "industry": "7373",
+                "is_pit": True,
+            },
+        ]
+    ).to_parquet(paths["industry_master"], index=False)
+    config = make_config()
+    config["industry"]["source"] = "industry_master"
+
+    result = build_industry_features(pd.DataFrame({"symbol": ["AAA", "BBB", "CCC"]}), config, paths, make_base_features())
+
+    aaa_key = (pd.Timestamp("2024-01-02"), "AAA")
+    bbb_key = (pd.Timestamp("2024-01-02"), "BBB")
+    ccc_key = (pd.Timestamp("2024-01-02"), "CCC")
+    assert result.features.loc[aaa_key, "industry_pct_roe"] == 1.0
+    assert result.features.loc[bbb_key, "industry_pct_roe"] == 0.5
+    assert pd.isna(result.features.loc[ccc_key, "industry_pct_roe"])
+    failures = result.failures.set_index(["symbol", "error"])
+    assert ("CCC", "missing_industry_classification") in failures.index
+    assert (tmp_path / "edgar_relative_feature_coverage.csv").exists()
 
 
 def test_combined_frame_keeps_alpha_fundamental_industry_and_label_groups() -> None:

@@ -1,0 +1,41 @@
+extends: crsp_alpha158_10d_conservative_2010_2025.yaml
+
+experiment:
+  name: crsp_alpha158_edgar_10d_conservative_2010_2025
+  output_dir: analysis/nasdaq_top500_score/runs/crsp_alpha158_edgar_10d_conservative_2010_2025
+
+strict_pit:
+  enabled: true
+  mode: full_pit_dynamic
+  enforcement: fail
+  pit_industry_classification: true
+
+fundamentals:
+  enabled: true
+  source: sec_edgar
+  cache_dir: analysis/nasdaq_top500_score/runs/shared_edgar_cache
+  forms:
+    - 10-K
+    - 10-Q
+    - 10-K/A
+    - 10-Q/A
+  min_filing_count: 4
+  enable_valuation: true
+  valuation_price_source: crsp_raw_close
+  recent_filing_days: 5
+
+strategy_comparison:
+  enabled: true
+  variants:
+    - name: global_top10
+      description: Alpha158 + EDGAR global Top10 without industry caps.
+      output_dir_suffix: global_top10
+      industry_constraints:
+        enabled: false
+    - name: sector_cap_2_top10
+      description: Alpha158 + EDGAR Top10 with max 2 names per SIC2 sector and max 2 per SIC4 industry.
+      output_dir_suffix: sector_cap_2_top10
+      industry_constraints:
+        enabled: true
+        max_sector: 2
+        max_industry: 2

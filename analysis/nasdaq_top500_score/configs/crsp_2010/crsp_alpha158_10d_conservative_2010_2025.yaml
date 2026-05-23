@@ -1,0 +1,51 @@
+extends: ../crsp/crsp_alpha158_10d_conservative_2000_2025.yaml
+
+experiment:
+  name: crsp_alpha158_10d_conservative_2010_2025
+  output_dir: analysis/nasdaq_top500_score/runs/crsp_alpha158_10d_conservative_2010_2025
+
+data:
+  start_date: "2010-01-01"
+  end_date: "2025-12-31"
+
+split:
+  method: date
+  warmup_days: 60
+  train:
+    start: "2010-01-01"
+    end: "2021-12-31"
+  valid:
+    start: "2022-01-01"
+    end: "2023-12-31"
+  test:
+    start: "2024-01-01"
+    end: "2025-12-31"
+
+industry_validation:
+  enabled: true
+  source: crsp_sic_naics
+  min_train_annual_sic2_coverage: 0.80
+  min_test_rebalance_sic2_coverage: 0.85
+
+industry_mapping:
+  enabled: true
+  schema_version: 1
+  primary_source: crsp_monthly_row
+  fallbacks: [sec_edgar_sic]
+  sector_scheme: sic2
+  industry_scheme: sic4
+  min_train_annual_sector_coverage: 0.80
+  min_test_rebalance_sector_coverage: 0.85
+
+backtest:
+  cost_bps: 0
+
+backtest_stress:
+  enabled: true
+  baseline:
+    entry_lag_days: 1
+    entry_price: open
+    cost_bps: 0
+  entry_lag_days: [1, 2]
+  entry_prices: [open, vwap_proxy, close]
+  cost_bps: [0, 25, 50]

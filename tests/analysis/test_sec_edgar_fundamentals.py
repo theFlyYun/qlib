@@ -8,8 +8,10 @@ import pandas as pd
 from analysis.nasdaq_top500_score.fundamentals.sec_edgar import (
     SEC_UNAVAILABLE_MESSAGE,
     SecEdgarClient,
+    apply_field_level_asof_fill,
     build_sec_edgar_features,
     build_submissions_frame,
+    clean_fundamental_features,
 )
 from analysis.nasdaq_top500_score.run_qlib_alpha158_lightgbm import combine_alpha_and_fundamental_raw
 
@@ -32,9 +34,13 @@ def make_paths(tmp_path: Path) -> dict[str, Path]:
     return {
         "source_dir": tmp_path / "qlib_source_csv",
         "fundamental_features": tmp_path / "fundamental_features.parquet",
+        "fundamental_features_cleaned": tmp_path / "fundamental_features_cleaned.parquet",
+        "fundamental_cleaning_summary": tmp_path / "fundamental_cleaning_summary.yaml",
         "fundamental_failures": tmp_path / "fundamental_failures.csv",
         "edgar_cik_map": tmp_path / "edgar_cik_map.csv",
+        "edgar_tag_resolution_report": tmp_path / "edgar_tag_resolution_report.csv",
         "edgar_cache_dir": tmp_path / "edgar_cache",
+        "crsp_warehouse_dir": tmp_path / "crsp_warehouse",
     }
 
 
@@ -101,17 +107,30 @@ class FakeSecEdgarClient:
         }
 
 
-def write_price_csv(tmp_path: Path) -> None:
+def write_price_csv(tmp_path: Path, symbol: str = "AAA") -> None:
     source_dir = tmp_path / "qlib_source_csv"
-    source_dir.mkdir()
+    source_dir.mkdir(exist_ok=True)
     pd.DataFrame(
         [
-            {"date": "2020-04-29", "symbol": "AAA", "open": 10, "high": 10, "low": 10, "close": 10, "vwap": 10, "volume": 1},
-            {"date": "2020-04-30", "symbol": "AAA", "open": 11, "high": 11, "low": 11, "close": 11, "vwap": 11, "volume": 1},
-            {"date": "2020-05-01", "symbol": "AAA", "open": 12, "high": 12, "low": 12, "close": 12, "vwap": 12, "volume": 1},
-            {"date": "2021-05-03", "symbol": "AAA", "open": 13, "high": 13, "low": 13, "close": 13, "vwap": 13, "volume": 1},
+            {"date": "2020-04-29", "symbol": symbol, "open": 10, "high": 10, "low": 10, "close": 10, "vwap": 10, "volume": 1},
+            {"date": "2020-04-30", "symbol": symbol, "open": 11, "high": 11, "low": 11, "close": 11, "vwap": 11, "volume": 1},
+            {"date": "2020-05-01", "symbol": symbol, "open": 12, "high": 12, "low": 12, "close": 12, "vwap": 12, "volume": 1},
+            {"date": "2021-05-03", "symbol": symbol, "open": 13, "high": 13, "low": 13, "close": 13, "vwap": 13, "volume": 1},
         ]
-    ).to_csv(source_dir / "AAA.csv", index=False)
+    ).to_csv(source_dir / f"{symbol}.csv", index=False)
+
+
+def write_crsp_execution_prices(tmp_path: Path, symbol: str = "P12345") -> None:
+    execution_dir = tmp_path / "crsp_warehouse" / "crsp_execution_prices.parquet"
+    execution_dir.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(
+        [
+            {"date": "2020-04-29", "instrument": symbol, "DlyClose": 20.0},
+            {"date": "2020-04-30", "instrument": symbol, "DlyClose": 21.0},
+            {"date": "2020-05-01", "instrument": symbol, "DlyClose": 22.0},
+            {"date": "2021-05-03", "instrument": symbol, "DlyClose": 23.0},
+        ]
+    ).to_parquet(execution_dir / "part-000000.parquet", index=False)
 
 
 def test_build_submissions_frame_filters_10k_10q_and_amendments() -> None:
@@ -183,3 +202,164 @@ def test_sec_edgar_features_are_point_in_time_and_record_failures(tmp_path: Path
     assert (tmp_path / "fundamental_features.parquet").exists()
     assert (tmp_path / "fundamental_failures.csv").exists()
     assert (tmp_path / "edgar_cik_map.csv").exists()
+    tag_report = pd.read_csv(tmp_path / "edgar_tag_resolution_report.csv")
+    assert {"symbol", "field", "concept", "unit"}.issubset(tag_report.columns)
+    assert "Revenues" in tag_report["concept"].tolist()
+
+
+def test_field_level_asof_fill_reuses_previous_visible_field_until_stale_limit() -> None:
+    events = pd.DataFrame(
+        {
+            "effective_date": pd.to_datetime(["2020-01-02", "2020-04-02", "2022-01-03"]),
+            "revenue": [100.0, 110.0, 120.0],
+            "gross_profit": [40.0, pd.NA, pd.NA],
+        }
+    )
+
+    filled = apply_field_level_asof_fill(
+        events,
+        {"enabled": True, "default_max_stale_days": 540, "max_stale_days": {"gross_profit": 365}},
+    )
+
+    assert filled.loc[1, "gross_profit"] == 40.0
+    assert pd.isna(filled.loc[2, "gross_profit"])
+    assert filled.loc[1, "gross_profit_last_available_date"] == pd.Timestamp("2020-01-02")
+
+
+def test_crsp_permno_instrument_maps_to_cik_by_ticker_asof(tmp_path: Path) -> None:
+    write_price_csv(tmp_path, "P12345")
+    config = make_config(tmp_path)
+    config["data"] = {"source": "crsp", "start_date": "2020-01-01", "end_date": "2021-12-31"}
+    config["fundamentals"]["valuation_price_source"] = "qlib_close"
+    universe = pd.DataFrame({"symbol": ["P12345"], "ticker_asof": ["AAA"]})
+
+    result = build_sec_edgar_features(universe, config, make_paths(tmp_path), client=FakeSecEdgarClient())
+
+    assert (pd.Timestamp("2020-05-01"), "P12345") in result.features.index
+    cik_map = result.cik_map.set_index("symbol")
+    assert cik_map.loc["P12345", "cik"] == 1001
+    assert cik_map.loc["P12345", "lookup_symbol"] == "AAA"
+    assert cik_map.loc["P12345", "mapping_method"] == "ticker_asof"
+
+
+def test_crsp_permno_instrument_prefers_direct_cik_mapping(tmp_path: Path) -> None:
+    write_price_csv(tmp_path, "P12345")
+    config = make_config(tmp_path)
+    config["data"] = {"source": "crsp", "start_date": "2020-01-01", "end_date": "2021-12-31"}
+    config["fundamentals"]["valuation_price_source"] = "qlib_close"
+    universe = pd.DataFrame({"symbol": ["P12345"], "cik": [1001], "ticker_asof": ["NOT_AAA"], "effective_start": ["2020-01-01"]})
+
+    result = build_sec_edgar_features(universe, config, make_paths(tmp_path), client=FakeSecEdgarClient())
+
+    cik_map = result.cik_map.set_index("symbol")
+    assert cik_map.loc["P12345", "cik"] == 1001
+    assert cik_map.loc["P12345", "mapping_method"] == "direct_cik"
+    assert cik_map.loc["P12345", "confidence"] == 1.0
+
+
+def test_coverage_aware_features_are_added_when_enabled(tmp_path: Path) -> None:
+    write_price_csv(tmp_path)
+    config = make_config(tmp_path)
+    config["fundamentals"]["coverage_features"] = {"enabled": True}
+    config["fundamentals"]["field_level_fill"] = {"enabled": True, "default_max_stale_days": 540}
+    universe = pd.DataFrame({"symbol": ["AAA"]})
+
+    result = build_sec_edgar_features(universe, config, make_paths(tmp_path), client=FakeSecEdgarClient())
+
+    row = result.features.loc[(pd.Timestamp("2021-05-03"), "AAA")]
+    assert "edgar_has_profitability_quality" in result.features.columns
+    assert row["edgar_has_growth"] == 1.0
+    assert row["edgar_days_since_revenue"] >= 0
+
+
+def test_crsp_edgar_valuation_uses_raw_close_from_execution_prices(tmp_path: Path) -> None:
+    write_crsp_execution_prices(tmp_path, "P12345")
+    config = make_config(tmp_path)
+    config["data"] = {"source": "crsp", "start_date": "2020-01-01", "end_date": "2021-12-31"}
+    config["fundamentals"]["valuation_price_source"] = "crsp_raw_close"
+    universe = pd.DataFrame({"symbol": ["P12345"], "ticker_asof": ["AAA"]})
+
+    result = build_sec_edgar_features(universe, config, make_paths(tmp_path), client=FakeSecEdgarClient())
+
+    assert (pd.Timestamp("2021-05-03"), "P12345") in result.features.index
+    assert result.features.loc[(pd.Timestamp("2021-05-03"), "P12345"), "edgar_price_to_sales"] == 23 * 10 / 500
+    assert "missing_price" not in result.failures["error"].tolist()
+
+
+def test_fundamental_cleaning_static_rules_do_not_need_future_quantiles() -> None:
+    index = pd.MultiIndex.from_tuples(
+        [(pd.Timestamp("2024-01-02"), "AAA"), (pd.Timestamp("2024-01-03"), "AAA")],
+        names=["datetime", "instrument"],
+    )
+    features = pd.DataFrame(
+        {
+            "edgar_price_to_earnings": [-5.0, 500.0],
+            "edgar_market_cap_to_fcf": [-2.0, 300.0],
+            "edgar_roe": [-9.0, 9.0],
+            "edgar_revenue_yoy_growth": [-10.0, 10.0],
+        },
+        index=index,
+    )
+
+    cleaned, summary = clean_fundamental_features(
+        features,
+        {"cleaning": {"enabled": True, "mode": "static_rules", "negative_valuation_policy": "set_nan"}},
+    )
+
+    assert pd.isna(cleaned.iloc[0]["edgar_price_to_earnings"])
+    assert cleaned.iloc[1]["edgar_price_to_earnings"] == 200.0
+    assert pd.isna(cleaned.iloc[0]["edgar_market_cap_to_fcf"])
+    assert cleaned.iloc[1]["edgar_market_cap_to_fcf"] == 200.0
+    assert cleaned.iloc[0]["edgar_roe"] == -5.0
+    assert cleaned.iloc[1]["edgar_roe"] == 5.0
+    assert cleaned.iloc[0]["edgar_revenue_yoy_growth"] == -5.0
+    assert cleaned.iloc[1]["edgar_revenue_yoy_growth"] == 5.0
+    assert summary["total_set_nan_by_negative_policy"] == 2
+    assert summary["total_clipped_high"] == 4
+
+
+def test_feature_group_drop_removes_valuation_columns(tmp_path: Path) -> None:
+    write_crsp_execution_prices(tmp_path, "P12345")
+    config = make_config(tmp_path)
+    config["data"] = {"source": "crsp", "start_date": "2020-01-01", "end_date": "2021-12-31"}
+    config["fundamentals"]["valuation_price_source"] = "crsp_raw_close"
+    config["fundamentals"]["cleaning"] = {"enabled": True, "mode": "static_rules"}
+    config["fundamentals"]["drop_feature_groups"] = ["valuation"]
+    universe = pd.DataFrame({"symbol": ["P12345"], "ticker_asof": ["AAA"]})
+
+    result = build_sec_edgar_features(universe, config, make_paths(tmp_path), client=FakeSecEdgarClient())
+
+    assert "edgar_roe" in result.features.columns
+    assert "edgar_price_to_sales" not in result.features.columns
+    assert (tmp_path / "fundamental_features.parquet").exists()
+    assert (tmp_path / "fundamental_features_cleaned.parquet").exists()
+    assert (tmp_path / "fundamental_cleaning_summary.yaml").exists()
+
+
+def test_include_features_whitelist_keeps_only_requested_columns(tmp_path: Path) -> None:
+    write_crsp_execution_prices(tmp_path, "P12345")
+    config = make_config(tmp_path)
+    config["data"] = {"source": "crsp", "start_date": "2020-01-01", "end_date": "2021-12-31"}
+    config["fundamentals"]["valuation_price_source"] = "crsp_raw_close"
+    config["fundamentals"]["coverage_features"] = {"enabled": True}
+    config["fundamentals"]["field_level_fill"] = {"enabled": True, "default_max_stale_days": 540}
+    config["fundamentals"]["cleaning"] = {"enabled": True, "mode": "static_rules"}
+    config["fundamentals"]["include_features"] = [
+        "operating_margin",
+        "edgar_free_cash_flow_ttm",
+        "net_margin",
+        "fcf_margin",
+        "operating_cash_flow_ttm",
+    ]
+    universe = pd.DataFrame({"symbol": ["P12345"], "ticker_asof": ["AAA"]})
+
+    result = build_sec_edgar_features(universe, config, make_paths(tmp_path), client=FakeSecEdgarClient())
+
+    assert result.features.columns.tolist() == [
+        "edgar_operating_margin",
+        "edgar_free_cash_flow_ttm",
+        "edgar_net_margin",
+        "edgar_fcf_margin",
+        "edgar_operating_cash_flow_ttm",
+    ]
+    assert "edgar_has_profitability_quality" not in result.features.columns

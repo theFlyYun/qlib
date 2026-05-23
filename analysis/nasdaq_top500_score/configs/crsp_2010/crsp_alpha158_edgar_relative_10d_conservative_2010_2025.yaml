@@ -1,0 +1,23 @@
+extends: crsp_alpha158_edgar_clean_10d_conservative_2010_2025.yaml
+
+experiment:
+  name: crsp_alpha158_edgar_relative_10d_conservative_2010_2025
+  output_dir: analysis/nasdaq_top500_score/runs/crsp_alpha158_edgar_relative_10d_conservative_2010_2025
+
+industry:
+  enabled: true
+  source: industry_master
+  group_level: industry
+  fallback_group_level: sector
+  min_group_size: 10
+  rank_features:
+    - edgar_price_to_sales
+    - edgar_price_to_book
+    - edgar_price_to_earnings
+    - edgar_roe
+    - edgar_gross_margin
+    - edgar_net_margin
+    - edgar_revenue_yoy_growth
+    - edgar_liabilities_to_assets
+    - edgar_cash_to_assets
+    - edgar_fcf_margin

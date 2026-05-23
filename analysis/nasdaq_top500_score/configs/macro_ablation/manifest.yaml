@@ -1,0 +1,31 @@
+output_dir: analysis/nasdaq_top500_score/runs/macro_interaction_ablation_review
+variant: sector_cap_2_top10
+baseline_experiment: baseline
+full_experiment: full_interactions
+regime_min_periods: 5
+experiments:
+  - name: baseline
+    description: No raw macro and no macro interactions.
+    run_dir: analysis/nasdaq_top500_score/runs/nasdaq_alpha158_edgar_lgbm_10y_frozen_2023_top500_5d_pit_safe
+  - name: direct_macro
+    description: Raw FRED/ALFRED macro features appended directly to the model.
+    run_dir: analysis/nasdaq_top500_score/runs/nasdaq_alpha158_edgar_macro_lgbm_10y_frozen_2023_top500_5d_pit_safe
+  - name: full_interactions
+    description: Full 10-feature macro interaction model.
+    run_dir: analysis/nasdaq_top500_score/runs/nasdaq_alpha158_edgar_macro_interactions_lgbm_10y_frozen_2023_top500_5d_pit_safe
+    regime_comparison_name: macro_interactions
+  - name: drop_vix_interactions
+    description: Full interaction model without VIX momentum and volatility crosses.
+    run_dir: analysis/nasdaq_top500_score/runs/nasdaq_alpha158_edgar_macro_ablation_drop_vix_interactions_10y_frozen_2023_top500_5d_pit_safe
+  - name: drop_rate_valuation_interactions
+    description: Full interaction model without rate valuation and rate Technology crosses.
+    run_dir: analysis/nasdaq_top500_score/runs/nasdaq_alpha158_edgar_macro_ablation_drop_rate_valuation_interactions_10y_frozen_2023_top500_5d_pit_safe
+  - name: drop_credit_quality_interactions
+    description: Full interaction model without credit spread balance-sheet quality crosses.
+    run_dir: analysis/nasdaq_top500_score/runs/nasdaq_alpha158_edgar_macro_ablation_drop_credit_quality_interactions_10y_frozen_2023_top500_5d_pit_safe
+  - name: drop_sector_flag_interactions
+    description: Full interaction model without macro sector-flag crosses.
+    run_dir: analysis/nasdaq_top500_score/runs/nasdaq_alpha158_edgar_macro_ablation_drop_sector_flag_interactions_10y_frozen_2023_top500_5d_pit_safe
+  - name: only_vix_interactions
+    description: Model using only VIX momentum and volatility crosses.
+    run_dir: analysis/nasdaq_top500_score/runs/nasdaq_alpha158_edgar_macro_ablation_only_vix_interactions_10y_frozen_2023_top500_5d_pit_safe

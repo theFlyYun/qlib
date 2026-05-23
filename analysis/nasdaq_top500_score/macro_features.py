@@ -15,8 +15,22 @@ import pandas as pd
 import requests
 
 try:
+    from .artifact_cache import (
+        artifact_cache_dir,
+        artifact_cache_enabled,
+        read_cached_feature_result,
+        stable_hash,
+        write_cached_feature_result,
+    )
     from .data_sources.base import DataSourceUnavailable
 except ImportError:  # pragma: no cover - supports running the pipeline as a script.
+    from artifact_cache import (
+        artifact_cache_dir,
+        artifact_cache_enabled,
+        read_cached_feature_result,
+        stable_hash,
+        write_cached_feature_result,
+    )
     from data_sources.base import DataSourceUnavailable
 
 
@@ -181,6 +195,30 @@ def build_macro_feature_frame(
     if not macro_config or not macro_config.get("enabled", False):
         return MacroFeatureResult.empty(paths)
 
+    cache_paths = macro_feature_cache_paths(universe, config, paths)
+    if cache_paths:
+        cached = read_cached_feature_result(
+            features_path=cache_paths["features"],
+            failures_path=cache_paths["failures"],
+            coverage_path=cache_paths["coverage"],
+            failure_columns=MACRO_FAILURE_COLUMNS,
+        )
+        if cached and cache_paths["raw"].exists() and cache_paths["asof"].exists():
+            features, failures, coverage = cached
+            raw = pd.read_parquet(cache_paths["raw"])
+            asof = pd.read_parquet(cache_paths["asof"])
+            features.to_parquet(paths["macro_features"])
+            raw.to_parquet(paths["macro_raw_observations"])
+            asof.to_parquet(paths["macro_asof_observations"])
+            failures.to_csv(paths["macro_failures"], index=False)
+            return MacroFeatureResult(
+                features=features,
+                raw_observations=raw,
+                asof_observations=asof,
+                failures=failures,
+                coverage=coverage,
+            )
+
     macro_client = client or FredAlfredClient(paths["macro_cache_dir"])
     builder = MacroFeatureBuilder(config, paths, macro_client)
     result = builder.build(universe)
@@ -188,7 +226,48 @@ def build_macro_feature_frame(
     result.raw_observations.to_parquet(paths["macro_raw_observations"])
     result.asof_observations.to_parquet(paths["macro_asof_observations"])
     result.failures.to_csv(paths["macro_failures"], index=False)
+    if cache_paths:
+        write_cached_feature_result(
+            features_source=paths["macro_features"],
+            failures_source=paths["macro_failures"],
+            coverage=result.coverage,
+            features_path=cache_paths["features"],
+            failures_path=cache_paths["failures"],
+            coverage_path=cache_paths["coverage"],
+        )
+        cache_paths["raw"].parent.mkdir(parents=True, exist_ok=True)
+        result.raw_observations.to_parquet(cache_paths["raw"])
+        result.asof_observations.to_parquet(cache_paths["asof"])
     return result
+
+
+def macro_feature_cache_paths(
+    universe: pd.DataFrame,
+    config: dict[str, Any],
+    paths: dict[str, Path],
+) -> dict[str, Path] | None:
+    default_enabled = config.get("data", {}).get("source") == "crsp"
+    if not artifact_cache_enabled(config, "macro_features", default=default_enabled):
+        return None
+    payload = {
+        "data": config.get("data", {}),
+        "universe": {
+            "symbol_count": int(universe["symbol"].nunique()) if "symbol" in universe else len(universe),
+            "symbols_hash": stable_hash({"symbols": sorted(universe["symbol"].astype(str).str.upper().tolist())})
+            if "symbol" in universe
+            else None,
+        },
+        "macro_features": config.get("macro_features", {}),
+    }
+    key = stable_hash(payload)
+    root = artifact_cache_dir(config, paths, "macro_features")
+    return {
+        "features": root / f"{key}_features.parquet",
+        "raw": root / f"{key}_raw.parquet",
+        "asof": root / f"{key}_asof.parquet",
+        "failures": root / f"{key}_failures.csv",
+        "coverage": root / f"{key}_coverage.yaml",
+    }
 
 
 class MacroFeatureBuilder:

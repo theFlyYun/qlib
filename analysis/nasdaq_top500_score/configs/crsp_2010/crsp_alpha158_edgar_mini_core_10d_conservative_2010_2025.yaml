@@ -1,0 +1,20 @@
+extends: crsp_alpha158_edgar_quality_core_10d_conservative_2010_2025.yaml
+
+experiment:
+  name: crsp_alpha158_edgar_mini_core_10d_conservative_2010_2025
+  output_dir: analysis/nasdaq_top500_score/runs/crsp_alpha158_edgar_mini_core_10d_conservative_2010_2025
+
+edgar_effectiveness_review:
+  enabled: false
+
+fundamentals:
+  enable_valuation: false
+  include_features:
+    - operating_margin
+    - free_cash_flow_ttm
+    - net_margin
+    - fcf_margin
+    - operating_cash_flow_ttm
+
+report:
+  lightweight: true

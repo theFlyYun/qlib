@@ -1,0 +1,46 @@
+extends: crsp_alpha158_10d_conservative_2010_2025.yaml
+
+experiment:
+  name: crsp_alpha158_industry_strategy_comparison_10d_conservative_2010_2025
+  output_dir: analysis/nasdaq_top500_score/runs/crsp_alpha158_industry_strategy_comparison_10d_conservative_2010_2025
+
+run_mode: backtest_only
+
+strict_pit:
+  pit_industry_classification: true
+
+training:
+  reuse_test_predictions: true
+  reuse_test_predictions_path: analysis/nasdaq_top500_score/runs/crsp_alpha158_10d_conservative_2010_2025/test_predictions.csv
+
+bucket_ranking:
+  enabled: false
+
+industry_constraints:
+  enabled: false
+
+strategy_comparison:
+  enabled: true
+  variants:
+    - name: global_top10
+      description: Global Top10 without sector or industry caps.
+      industry_constraints:
+        enabled: false
+    - name: sector_cap_2_top10
+      description: Global Top10 with max 2 names per SIC2 sector and max 2 per SIC4 industry.
+      industry_constraints:
+        enabled: true
+        max_sector: 2
+        max_industry: 2
+    - name: sector_cap_3_top10
+      description: Global Top10 with max 3 names per SIC2 sector and max 2 per SIC4 industry.
+      industry_constraints:
+        enabled: true
+        max_sector: 3
+        max_industry: 2
+    - name: sector_cap_4_top10
+      description: Global Top10 with max 4 names per SIC2 sector and max 2 per SIC4 industry.
+      industry_constraints:
+        enabled: true
+        max_sector: 4
+        max_industry: 2

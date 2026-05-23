@@ -1,0 +1,201 @@
+experiment:
+  name: strict_base_sharadar_launch_pit_2023_5d
+  output_dir: analysis/nasdaq_top500_score/runs/strict_base_sharadar_launch_pit_2023_5d
+
+strict_pit:
+  enabled: true
+  mode: launch_pit_2023
+  enforcement: fail
+  pit_industry_classification: false
+  strict_vintage_macro_only: true
+
+universe:
+  provider: sharadar
+  mode: launch_pit_2023
+  exchange: NASDAQ
+  as_of_date: "2023-12-31"
+  as_of_trade_date: "2023-12-29"
+  top_n_by_market_cap: 500
+  include_delisted: true
+  min_history_rows: 180
+
+data:
+  source: sharadar
+  start_date: "2016-05-17"
+  end_date: "2026-05-17"
+  freq: day
+  price_adjustment: CAPITAL
+  vwap_method: ohlc_mean
+
+sharadar:
+  cache_dir: analysis/nasdaq_top500_score/runs/strict_shared_sharadar_cache
+  tables: [TICKERS, SEP, SF1, DAILY, INDICATORS]
+
+fundamentals:
+  enabled: true
+  source: sec_edgar
+  cache_dir: analysis/nasdaq_top500_score/runs/strict_shared_edgar_cache
+  forms:
+    - 10-K
+    - 10-Q
+    - 10-K/A
+    - 10-Q/A
+  min_filing_count: 4
+  enable_valuation: true
+  recent_filing_days: 5
+
+market_features:
+  enabled: true
+  source: qlib_source_csv
+  group_levels: []
+  min_group_size: 5
+  dollar_volume_windows: [20, 60]
+  momentum_windows: [20, 60, 120]
+  volatility_windows: [20, 60]
+  relative_features:
+    - log_close
+    - log_avg_dollar_volume_20d
+    - log_median_dollar_volume_60d
+    - momentum_20d
+    - momentum_60d
+    - momentum_120d
+    - volatility_20d
+    - volatility_60d
+    - history_rows_asof
+
+history_buckets:
+  enabled: true
+  thresholds:
+    full_10y: 2400
+    5_10y: 1260
+    2_5y: 504
+    lt_2y: 180
+
+bucket_ranking:
+  enabled: true
+  quotas:
+    full_10y: 4
+    5_10y: 3
+    2_5y: 2
+    lt_2y: 1
+  refill_order:
+    - full_10y
+    - 5_10y
+    - 2_5y
+    - lt_2y
+
+score_calibration:
+  enabled: false
+  method: bucket_penalty
+
+industry:
+  enabled: false
+  source: universe
+
+industry_constraints:
+  enabled: false
+
+liquidity_filter:
+  enabled: false
+  min_latest_close: 1.0
+  min_avg_dollar_volume_20d: 5000000
+  min_median_dollar_volume_60d: 2000000
+  max_zero_volume_ratio_60d: 0.05
+  min_recent_trading_days_60d: 40
+
+label:
+  expression: Ref($close, -6) / Ref($close, -1) - 1
+  name: LABEL0
+
+features:
+  handler: Alpha158
+  instruments: all
+
+split:
+  method: date
+  warmup_days: 60
+  train:
+    start: "2016-05-17"
+    end: "2021-12-31"
+  valid:
+    start: "2022-01-01"
+    end: "2023-12-31"
+  test:
+    start: "2024-01-01"
+    end: "2026-05-17"
+
+model:
+  class: LGBModel
+  kwargs:
+    loss: mse
+    learning_rate: 0.05
+    num_leaves: 64
+    max_depth: 8
+    n_estimators: 300
+    subsample: 0.85
+    colsample_bytree: 0.85
+    lambda_l1: 1.0
+    lambda_l2: 10.0
+    num_threads: 8
+    seed: 20260519
+    bagging_seed: 20260519
+    feature_fraction_seed: 20260519
+    data_random_seed: 20260519
+    drop_seed: 20260519
+    deterministic: true
+    force_col_wise: true
+
+training:
+  seed: 20260519
+  deterministic: true
+  reuse_test_predictions: false
+
+report:
+  top_n: 10
+
+backtest:
+  enabled: true
+  strategy: bucketed_topk
+  top_n: 10
+  holding_days: 5
+  rebalance_days: 5
+  entry_lag_days: 1
+  price: close
+  cost_bps: 10
+  min_positions: 5
+  point_in_time_filters:
+    enabled: true
+    history_bucket_asof: true
+    liquidity_asof: true
+    min_history_rows: 180
+    liquidity:
+      min_latest_close: 1.0
+      min_avg_dollar_volume_20d: 5000000
+      min_median_dollar_volume_60d: 2000000
+      max_zero_volume_ratio_60d: 0.05
+      min_recent_trading_days_60d: 40
+
+benchmark:
+  enabled: true
+  source: fred
+  symbol: SP500
+  series_id: SP500
+  name: S&P 500 Index
+  refresh: false
+
+attribution:
+  enabled: true
+  top_n: 10
+
+strategy_comparison:
+  enabled: false
+
+backtest_stress:
+  enabled: true
+  baseline:
+    entry_lag_days: 1
+    entry_price: close
+    cost_bps: 10
+  entry_lag_days: [1, 2]
+  entry_prices: [close, open, vwap_proxy]
+  cost_bps: [10, 25, 50, 100]

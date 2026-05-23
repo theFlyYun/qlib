@@ -1,0 +1,47 @@
+extends: crsp_alpha158_macro_10d_conservative_2000_2025.yaml
+
+experiment:
+  name: crsp_alpha158_macro_interactions_10d_conservative_2000_2025
+  output_dir: analysis/nasdaq_top500_score/runs/crsp_alpha158_macro_interactions_10d_conservative_2000_2025
+
+macro_features:
+  append_to_model: false
+
+market_features:
+  enabled: true
+  source: qlib_source_csv
+  append_to_model: false
+  group_levels: []
+  relative_features: []
+  dollar_volume_windows: [20, 60]
+  momentum_windows: [20, 60, 120]
+  volatility_windows: [20, 60]
+  min_group_size: 5
+
+macro_interactions:
+  enabled: true
+  interactions:
+    - name: macro_x_vix_zscore_momentum_20d
+      left: macro_vix_zscore_60d
+      right: market_momentum_20d
+    - name: macro_x_vix_change_volatility_20d
+      left: macro_vix_change_20d
+      right: market_volatility_20d
+    - name: macro_x_dgs10_momentum_60d
+      left: macro_dgs10
+      right: market_momentum_60d
+    - name: macro_x_dgs10_change_volatility_20d
+      left: macro_dgs10_change_20d
+      right: market_volatility_20d
+    - name: macro_x_curve_inverted_momentum_120d
+      left: macro_yield_curve_10y_2y_inverted
+      right: market_momentum_120d
+    - name: macro_x_credit_change_volatility_60d
+      left: macro_baa10y_credit_spread_change_20d
+      right: market_volatility_60d
+    - name: macro_x_dollar_change_momentum_60d
+      left: macro_broad_dollar_index_pct_change_20d
+      right: market_momentum_60d
+    - name: macro_x_oil_change_momentum_20d
+      left: macro_wti_oil_pct_change_20d
+      right: market_momentum_20d

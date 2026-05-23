@@ -1,0 +1,39 @@
+title: CRSP Macro Interaction Ablation + Regime Review
+output_dir: analysis/nasdaq_top500_score/runs/crsp_macro_interaction_ablation_review
+output_prefix: crsp_macro_ablation
+variant: main_backtest
+baseline_experiment: alpha158_only_baseline
+full_experiment: full_macro_interactions
+regime_min_periods: 5
+macro_features_path: analysis/nasdaq_top500_score/runs/crsp_alpha158_macro_10d_conservative_2000_2025/macro_features.parquet
+backtest:
+  rebalance_days: 10
+  periods_per_year: 25.2
+experiments:
+  - name: alpha158_only_baseline
+    description: CRSP Alpha158-only conservative baseline.
+    run_dir: analysis/nasdaq_top500_score/runs/crsp_alpha158_10d_conservative_2000_2025
+  - name: raw_macro_direct
+    description: CRSP Alpha158 plus raw FRED/ALFRED macro features.
+    run_dir: analysis/nasdaq_top500_score/runs/crsp_alpha158_macro_10d_conservative_2000_2025
+  - name: full_macro_interactions
+    description: Full 8-feature CRSP macro interaction model.
+    run_dir: analysis/nasdaq_top500_score/runs/crsp_alpha158_macro_interactions_10d_conservative_2000_2025
+  - name: drop_vix_interactions
+    description: Full interaction model without VIX momentum and volatility crosses.
+    run_dir: analysis/nasdaq_top500_score/runs/crsp_macro_ablation_drop_vix_interactions_10d_conservative_2000_2025
+  - name: drop_rate_curve_interactions
+    description: Full interaction model without rate level, rate trend, and curve inversion crosses.
+    run_dir: analysis/nasdaq_top500_score/runs/crsp_macro_ablation_drop_rate_curve_interactions_10d_conservative_2000_2025
+  - name: drop_credit_interaction
+    description: Full interaction model without credit-spread volatility cross.
+    run_dir: analysis/nasdaq_top500_score/runs/crsp_macro_ablation_drop_credit_interaction_10d_conservative_2000_2025
+  - name: drop_dollar_oil_interactions
+    description: Full interaction model without dollar and oil trend crosses.
+    run_dir: analysis/nasdaq_top500_score/runs/crsp_macro_ablation_drop_dollar_oil_interactions_10d_conservative_2000_2025
+  - name: only_vix_interactions
+    description: Model using only VIX momentum and volatility crosses.
+    run_dir: analysis/nasdaq_top500_score/runs/crsp_macro_ablation_only_vix_interactions_10d_conservative_2000_2025
+  - name: only_rate_curve_interactions
+    description: Model using only rate level, rate trend, and curve inversion crosses.
+    run_dir: analysis/nasdaq_top500_score/runs/crsp_macro_ablation_only_rate_curve_interactions_10d_conservative_2000_2025

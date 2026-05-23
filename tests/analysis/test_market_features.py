@@ -49,6 +49,7 @@ def make_paths(tmp_path: Path) -> dict[str, Path]:
         "source_dir": tmp_path / "qlib_source_csv",
         "market_features": tmp_path / "market_features.parquet",
         "market_feature_failures": tmp_path / "market_feature_failures.csv",
+        "industry_master": tmp_path / "industry_master.parquet",
     }
 
 
@@ -85,6 +86,63 @@ def test_market_features_are_point_in_time_and_ranked_within_sector_and_industry
     assert pd.isna(features.loc[single_industry_key, "market_industry_pct_momentum_2d"])
     assert paths["market_features"].exists()
     assert paths["market_feature_failures"].exists()
+
+
+def test_market_features_use_pit_industry_master_instead_of_static_universe(tmp_path: Path) -> None:
+    paths = make_paths(tmp_path)
+    source_dir = paths["source_dir"]
+    source_dir.mkdir()
+    dates = pd.bdate_range("2024-01-02", periods=4)
+    write_price_csv(source_dir, "AAA", dates, [10, 11, 12, 13], [100, 100, 100, 100])
+    write_price_csv(source_dir, "BBB", dates, [10, 10, 10, 10], [10, 10, 10, 10])
+    pd.DataFrame(
+        [
+            {
+                "instrument": "AAA",
+                "effective_start": "2024-01-02",
+                "effective_end": "2024-01-03",
+                "sector": "Technology",
+                "industry": "Software",
+                "is_pit": True,
+            },
+            {
+                "instrument": "AAA",
+                "effective_start": "2024-01-04",
+                "effective_end": "2024-01-31",
+                "sector": "Health Care",
+                "industry": "Biotech",
+                "is_pit": True,
+            },
+            {
+                "instrument": "BBB",
+                "effective_start": "2024-01-02",
+                "effective_end": "2024-01-31",
+                "sector": "Technology",
+                "industry": "Software",
+                "is_pit": True,
+            },
+        ]
+    ).to_parquet(paths["industry_master"], index=False)
+    config = make_config()
+    config["market_features"]["momentum_windows"] = [1]
+    config["market_features"]["dollar_volume_windows"] = [1]
+    config["market_features"]["volatility_windows"] = [1]
+    config["market_features"]["relative_features"] = ["momentum_1d", "history_rows_asof"]
+
+    result = build_market_feature_frame(
+        pd.DataFrame(
+            [
+                {"symbol": "AAA", "sector": "Technology", "industry": "Software"},
+                {"symbol": "BBB", "sector": "Technology", "industry": "Software"},
+            ]
+        ),
+        config,
+        paths,
+    )
+
+    features = result.features
+    assert features.loc[(pd.Timestamp("2024-01-03"), "AAA"), "market_sector_pct_history_rows_asof"] == 0.75
+    assert pd.isna(features.loc[(pd.Timestamp("2024-01-04"), "AAA"), "market_sector_pct_history_rows_asof"])
 
 
 def test_market_features_merge_with_alpha_feature_group(tmp_path: Path) -> None:

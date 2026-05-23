@@ -1,0 +1,12 @@
+extends: ../crsp_2010/crsp_alpha158_edgar_relative_10d_conservative_2010_2025.yaml
+
+experiment:
+  name: crsp_edgar_ablation_drop_filing_state_10d_conservative_2010_2025
+  output_dir: analysis/nasdaq_top500_score/runs/crsp_edgar_ablation_drop_filing_state_10d_conservative_2010_2025
+
+report:
+  lightweight: true
+
+fundamentals:
+  drop_feature_groups:
+    - filing_state

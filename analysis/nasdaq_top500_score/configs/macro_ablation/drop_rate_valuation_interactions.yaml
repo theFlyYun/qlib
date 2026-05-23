@@ -1,0 +1,49 @@
+extends: ../nasdaq_alpha158_edgar_macro_interactions_lgbm_10y_frozen_2023_top500_5d_pit_safe.yaml
+
+experiment:
+  name: nasdaq_alpha158_edgar_macro_ablation_drop_rate_valuation_interactions_10y_frozen_2023_top500_5d_pit_safe
+  output_dir: analysis/nasdaq_top500_score/runs/nasdaq_alpha158_edgar_macro_ablation_drop_rate_valuation_interactions_10y_frozen_2023_top500_5d_pit_safe
+
+data:
+  reuse_prepared_run: analysis/nasdaq_top500_score/runs/nasdaq_alpha158_edgar_macro_interactions_lgbm_10y_frozen_2023_top500_5d_pit_safe
+
+macro_interactions:
+  enabled: true
+  interactions:
+    - name: macro_x_vix_zscore_momentum_20d
+      left: macro_vix_zscore_60d
+      right: market_sector_pct_momentum_20d
+    - name: macro_x_vix_change_volatility_20d
+      left: macro_vix_change_20d
+      right: market_sector_pct_volatility_20d
+    - name: macro_x_credit_change_liabilities_to_assets
+      left: macro_baa10y_credit_spread_change_20d
+      right: edgar_liabilities_to_assets
+    - name: macro_x_credit_spread_cash_to_assets
+      left: macro_baa10y_credit_spread
+      right: edgar_cash_to_assets
+    - name: macro_x_curve_inverted_finance
+      left: macro_yield_curve_10y_2y_inverted
+      sector: Finance
+    - name: macro_x_wti_change_energy_industrials
+      left: macro_wti_oil_pct_change_20d
+      sectors: [Energy, Industrials]
+    - name: macro_x_dollar_change_technology
+      left: macro_broad_dollar_index_pct_change_20d
+      sector: Technology
+
+macro_regime_review:
+  enabled: true
+  variant: sector_cap_2_top10
+  baseline_experiment: baseline
+  min_periods: 5
+  macro_features_path: analysis/nasdaq_top500_score/runs/nasdaq_alpha158_edgar_macro_lgbm_10y_frozen_2023_top500_5d_pit_safe/macro_features.parquet
+  experiments:
+    - name: baseline
+      run_dir: analysis/nasdaq_top500_score/runs/nasdaq_alpha158_edgar_lgbm_10y_frozen_2023_top500_5d_pit_safe
+    - name: direct_macro
+      run_dir: analysis/nasdaq_top500_score/runs/nasdaq_alpha158_edgar_macro_lgbm_10y_frozen_2023_top500_5d_pit_safe
+    - name: full_interactions
+      run_dir: analysis/nasdaq_top500_score/runs/nasdaq_alpha158_edgar_macro_interactions_lgbm_10y_frozen_2023_top500_5d_pit_safe
+    - name: drop_rate_valuation_interactions
+      run_dir: analysis/nasdaq_top500_score/runs/nasdaq_alpha158_edgar_macro_ablation_drop_rate_valuation_interactions_10y_frozen_2023_top500_5d_pit_safe

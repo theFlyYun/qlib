@@ -1,0 +1,32 @@
+extends: crsp_alpha158_edgar_clean_10d_conservative_2010_2025.yaml
+
+experiment:
+  name: crsp_alpha158_edgar_repaired_quality_10d_conservative_2010_2025
+  output_dir: analysis/nasdaq_top500_score/runs/crsp_alpha158_edgar_repaired_quality_10d_conservative_2010_2025
+
+fundamentals:
+  enable_valuation: false
+  field_level_fill:
+    enabled: true
+    default_max_stale_days: 540
+    max_stale_days:
+      revenue: 540
+      gross_profit: 540
+      operating_income: 540
+      net_income: 540
+      operating_cash_flow: 540
+      capex: 540
+      assets: 540
+      liabilities: 540
+      equity: 540
+      cash: 540
+      shares_diluted: 540
+  coverage_features:
+    enabled: true
+  include_feature_groups:
+    - profitability_quality
+    - filing_state
+    - coverage_state
+
+report:
+  lightweight: true

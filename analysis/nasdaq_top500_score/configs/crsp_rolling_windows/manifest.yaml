@@ -1,0 +1,27 @@
+output_dir: analysis/nasdaq_top500_score/runs/crsp_rolling_windows
+windows:
+  - id: "2018_2019"
+    label: "2018-2019"
+    train: {start: "2010-01-01", end: "2015-12-31"}
+    valid: {start: "2016-01-01", end: "2017-12-31"}
+    test: {start: "2018-01-01", end: "2019-12-31"}
+  - id: "2020_2021"
+    label: "2020-2021"
+    train: {start: "2010-01-01", end: "2017-12-31"}
+    valid: {start: "2018-01-01", end: "2019-12-31"}
+    test: {start: "2020-01-01", end: "2021-12-31"}
+  - id: "2022_2023"
+    label: "2022-2023"
+    train: {start: "2010-01-01", end: "2019-12-31"}
+    valid: {start: "2020-01-01", end: "2021-12-31"}
+    test: {start: "2022-01-01", end: "2023-12-31"}
+  - id: "2024_2025"
+    label: "2024-2025"
+    train: {start: "2010-01-01", end: "2021-12-31"}
+    valid: {start: "2022-01-01", end: "2023-12-31"}
+    test: {start: "2024-01-01", end: "2025-12-31"}
+experiments:
+  - feature_set: alpha158_only
+    config: analysis/nasdaq_top500_score/configs/crsp_rolling_windows/{window_id}_alpha158_only.yaml
+  - feature_set: edgar_mini_core
+    config: analysis/nasdaq_top500_score/configs/crsp_rolling_windows/{window_id}_edgar_mini_core.yaml

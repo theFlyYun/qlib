@@ -20,6 +20,74 @@ analysis/nasdaq_top500_score/configs/nasdaq_alpha158_lgbm_1d.yaml
   --config analysis/nasdaq_top500_score/configs/nasdaq_alpha158_lgbm_1d.yaml
 ```
 
+CRSP 本地日级数据源配置：
+
+```text
+analysis/nasdaq_top500_score/configs/crsp/crsp_alpha158_10d_2000_2025.yaml
+analysis/nasdaq_top500_score/configs/crsp/crsp_alpha158_macro_10d_2000_2025.yaml
+```
+
+这组配置使用本地 CRSP daily CSV 构建 ignored Parquet warehouse，股票池改为 US Common Equity 月度动态市值 Top500，标签改为未来 10 个交易日 CRSP 总收益，回测改为每 10 个交易日调仓、次日 open 入场。首次运行会从 26GB raw CSV 生成 warehouse，后续复跑只读 Parquet / Qlib bin：
+
+```bash
+.venv/bin/python -u analysis/nasdaq_top500_score/run_qlib_alpha158_lightgbm.py \
+  --config analysis/nasdaq_top500_score/configs/crsp/crsp_alpha158_10d_2000_2025.yaml
+```
+
+CRSP 配置默认启用 prepared dataset cache，同一数据窗口、动态 Top500、标签周期和复权口径只生成一次底层数据：
+
+```text
+analysis/nasdaq_top500_score/runs/crsp_prepared_datasets/
+```
+
+每次运行还会输出：
+
+```text
+runtime_profile.csv
+runtime_profile.yaml
+```
+
+如果只是检查训练是否能跑通，可把配置里的 `runtime.run_mode` 临时设为 `train_only`；如果已有 `test_predictions.csv` 只想重跑压力测试，可设为 `stress_only`。
+
+宏观增强版本：
+
+```bash
+.venv/bin/python -u analysis/nasdaq_top500_score/run_qlib_alpha158_lightgbm.py \
+  --config analysis/nasdaq_top500_score/configs/crsp/crsp_alpha158_macro_10d_2000_2025.yaml
+```
+
+CRSP 2010-2025 新主线配置：
+
+```text
+analysis/nasdaq_top500_score/configs/crsp_2010/crsp_alpha158_10d_conservative_2010_2025.yaml
+analysis/nasdaq_top500_score/configs/crsp_2010/crsp_alpha158_bucket_top10_10d_conservative_2010_2025.yaml
+analysis/nasdaq_top500_score/configs/crsp_2010/crsp_alpha158_industry_constrained_10d_conservative_2010_2025.yaml
+analysis/nasdaq_top500_score/configs/crsp_2010/crsp_alpha158_industry_market_relative_10d_conservative_2010_2025.yaml
+```
+
+这组配置把研究窗口缩短为 `2010-01-01 ~ 2025-12-31`，测试期仍是 `2024-2025`，主回测成本改为 `0bps`，压力测试精简为 `0/25/50bps`。第一版默认只跑 Alpha158-only conservative baseline：
+
+```bash
+.venv/bin/python -u analysis/nasdaq_top500_score/run_qlib_alpha158_lightgbm.py \
+  --config analysis/nasdaq_top500_score/configs/crsp_2010/crsp_alpha158_10d_conservative_2010_2025.yaml
+```
+
+当前行业路径按 CRSP SIC/NAICS 验收结果决定是否启用。先看：
+
+```bash
+cat analysis/nasdaq_top500_score/runs/crsp_alpha158_10d_conservative_2010_2025/crsp_industry_validation_summary.yaml
+```
+
+如果训练期年度 SIC2 覆盖不足，行业约束和行业内相对特征只作为复盘维度，不进入默认模型。
+
+标准清理只做 dry-run：
+
+```bash
+.venv/bin/python analysis/nasdaq_top500_score/cleanup_runs.py
+```
+
+它会生成待删目录清单，但不会删除 CRSP raw、warehouse、prepared dataset、配置、文档或测试代码。
+
 固定 15 年窗口 baseline 配置：
 
 ```text

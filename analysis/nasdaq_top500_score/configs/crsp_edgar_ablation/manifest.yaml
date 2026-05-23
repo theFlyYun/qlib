@@ -1,0 +1,42 @@
+output_dir: analysis/nasdaq_top500_score/runs/crsp_edgar_ablation_review
+experiments:
+  - name: alpha158_only_baseline
+    feature_set: alpha158_only
+    config: analysis/nasdaq_top500_score/configs/crsp_2010/crsp_alpha158_10d_conservative_2010_2025.yaml
+    run_dir: analysis/nasdaq_top500_score/runs/crsp_alpha158_10d_conservative_2010_2025
+  - name: edgar_clean_all
+    feature_set: edgar_clean_all
+    config: analysis/nasdaq_top500_score/configs/crsp_2010/crsp_alpha158_edgar_clean_10d_conservative_2010_2025.yaml
+    run_dir: analysis/nasdaq_top500_score/runs/crsp_alpha158_edgar_clean_10d_conservative_2010_2025
+  - name: edgar_clean_all_plus_relative
+    feature_set: edgar_clean_all_plus_relative
+    config: analysis/nasdaq_top500_score/configs/crsp_2010/crsp_alpha158_edgar_relative_10d_conservative_2010_2025.yaml
+    run_dir: analysis/nasdaq_top500_score/runs/crsp_alpha158_edgar_relative_10d_conservative_2010_2025
+  - name: edgar_quality_core
+    feature_set: profitability_quality_plus_filing_and_coverage_state
+    config: analysis/nasdaq_top500_score/configs/crsp_2010/crsp_alpha158_edgar_quality_core_10d_conservative_2010_2025.yaml
+    run_dir: analysis/nasdaq_top500_score/runs/crsp_alpha158_edgar_quality_core_10d_conservative_2010_2025
+  - name: edgar_repaired_no_valuation
+    feature_set: repaired_without_valuation
+    config: analysis/nasdaq_top500_score/configs/crsp_2010/crsp_alpha158_edgar_repaired_no_valuation_10d_conservative_2010_2025.yaml
+    run_dir: analysis/nasdaq_top500_score/runs/crsp_alpha158_edgar_repaired_no_valuation_10d_conservative_2010_2025
+  - name: drop_valuation
+    feature_set: drop_valuation
+    config: analysis/nasdaq_top500_score/configs/crsp_edgar_ablation/drop_valuation.yaml
+    run_dir: analysis/nasdaq_top500_score/runs/crsp_edgar_ablation_drop_valuation_10d_conservative_2010_2025
+  - name: drop_profitability_quality
+    feature_set: drop_profitability_quality
+    config: analysis/nasdaq_top500_score/configs/crsp_edgar_ablation/drop_profitability_quality.yaml
+    run_dir: analysis/nasdaq_top500_score/runs/crsp_edgar_ablation_drop_profitability_quality_10d_conservative_2010_2025
+  - name: drop_growth
+    feature_set: drop_growth
+    config: analysis/nasdaq_top500_score/configs/crsp_edgar_ablation/drop_growth.yaml
+    run_dir: analysis/nasdaq_top500_score/runs/crsp_edgar_ablation_drop_growth_10d_conservative_2010_2025
+  - name: drop_balance_sheet_stability
+    feature_set: drop_balance_sheet_stability
+    config: analysis/nasdaq_top500_score/configs/crsp_edgar_ablation/drop_balance_sheet_stability.yaml
+    run_dir: analysis/nasdaq_top500_score/runs/crsp_edgar_ablation_drop_balance_sheet_stability_10d_conservative_2010_2025
+  - name: drop_filing_state
+    feature_set: drop_filing_state
+    config: analysis/nasdaq_top500_score/configs/crsp_edgar_ablation/drop_filing_state.yaml
+    run_dir: analysis/nasdaq_top500_score/runs/crsp_edgar_ablation_drop_filing_state_10d_conservative_2010_2025

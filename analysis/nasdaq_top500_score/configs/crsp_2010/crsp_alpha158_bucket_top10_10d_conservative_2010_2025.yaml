@@ -1,0 +1,13 @@
+extends: crsp_alpha158_10d_conservative_2010_2025.yaml
+
+experiment:
+  name: crsp_alpha158_bucket_top10_10d_conservative_2010_2025
+  output_dir: analysis/nasdaq_top500_score/runs/crsp_alpha158_bucket_top10_10d_conservative_2010_2025
+
+bucket_ranking:
+  enabled: true
+  quotas:
+    full_10y: 4
+    5_10y: 3
+    2_5y: 2
+    lt_2y: 1

@@ -1,0 +1,22 @@
+extends: ../crsp_2010/crsp_alpha158_edgar_relative_10d_conservative_2010_2025.yaml
+
+experiment:
+  name: crsp_edgar_ablation_drop_valuation_10d_conservative_2010_2025
+  output_dir: analysis/nasdaq_top500_score/runs/crsp_edgar_ablation_drop_valuation_10d_conservative_2010_2025
+
+report:
+  lightweight: true
+
+fundamentals:
+  drop_feature_groups:
+    - valuation
+
+industry:
+  rank_features:
+    - edgar_roe
+    - edgar_gross_margin
+    - edgar_net_margin
+    - edgar_revenue_yoy_growth
+    - edgar_liabilities_to_assets
+    - edgar_cash_to_assets
+    - edgar_fcf_margin

@@ -50,18 +50,42 @@
 - [TopK Cost Backtest](<04-strategy-backtest/TopK Cost Backtest.md>)
 - [PIT Safe Backtest](<04-strategy-backtest/PIT Safe Backtest.md>)
 - [Future Information Audit](<04-strategy-backtest/Future Information Audit.md>)
+- [Future Leakage And Backtest Water Audit](<04-strategy-backtest/Future Leakage And Backtest Water Audit.md>)
+- [Backtest Stress Test Review](<04-strategy-backtest/Backtest Stress Test Review.md>)
+- [Strict Re-Run Result Review](<04-strategy-backtest/Strict Re-Run Result Review.md>)
 - [Benchmark And Excess Return Review](<04-strategy-backtest/Benchmark And Excess Return Review.md>)
 - [Position Contribution And Exposure Review](<04-strategy-backtest/Position Contribution And Exposure Review.md>)
 
 ### 05 Data Expansion
 
 - [Data Source Upgrade Plan](<05-data-expansion/Data Source Upgrade Plan.md>)
+- [Strict PIT Data Repair Plan](<05-data-expansion/Strict PIT Data Repair Plan.md>)
+- [CRSP Data Source Migration Plan](<05-data-expansion/CRSP Data Source Migration Plan.md>)
+- [CRSP Early Stopping And Negative IC Diagnostics](<05-data-expansion/CRSP Early Stopping And Negative IC Diagnostics.md>)
+- [CRSP Conservative Model And Horizon Comparison](<05-data-expansion/CRSP Conservative Model And Horizon Comparison.md>)
+- [CRSP Macro Conservative Comparison](<05-data-expansion/CRSP Macro Conservative Comparison.md>)
+- [CRSP Training Speed Optimization](<05-data-expansion/CRSP Training Speed Optimization.md>)
+- [CRSP Macro Interaction Ablation And Regime Review](<05-data-expansion/CRSP Macro Interaction Ablation And Regime Review.md>)
+- [CRSP Macro Enhanced Result Review](<05-data-expansion/CRSP Macro Enhanced Result Review.md>)
+- [CRSP 2010 Baseline Cleanup And Industry Recovery](<05-data-expansion/CRSP 2010 Baseline Cleanup And Industry Recovery.md>)
+- [CRSP Industry Mapping Repair](<05-data-expansion/CRSP Industry Mapping Repair.md>)
+- [CRSP EDGAR Fundamentals Integration](<05-data-expansion/CRSP EDGAR Fundamentals Integration.md>)
+- [CRSP EDGAR Coverage Cleaning And Ablation](<05-data-expansion/CRSP EDGAR Coverage Cleaning And Ablation.md>)
+- [CRSP Rolling Window Validation](<05-data-expansion/CRSP Rolling Window Validation.md>)
+- [CRSP Rolling Window Failure Review](<05-data-expansion/CRSP Rolling Window Failure Review.md>)
+- [CRSP 2022 2023 Failure Deep Dive](<05-data-expansion/CRSP 2022 2023 Failure Deep Dive.md>)
+- [CRSP Large Research Stage Summary](<05-data-expansion/CRSP Large Research Stage Summary.md>)
+- [Databento Strict Launch PIT Integration](<05-data-expansion/Databento Strict Launch PIT Integration.md>)
+- [Sharadar Strict Launch PIT Integration](<05-data-expansion/Sharadar Strict Launch PIT Integration.md>)
 - [Fixed Window And Real EDGAR Runbook](<05-data-expansion/Fixed Window And Real EDGAR Runbook.md>)
 - [Norgate Data Integration](<05-data-expansion/Norgate Data Integration.md>)
 - [SEC EDGAR Fundamentals Integration](<05-data-expansion/SEC EDGAR Fundamentals Integration.md>)
 - [SEC EDGAR Technical Data Flow](<05-data-expansion/SEC EDGAR Technical Data Flow.md>)
 - [FRED ALFRED Macro Features Integration](<05-data-expansion/FRED ALFRED Macro Features Integration.md>)
 - [FRED ALFRED Macro Experiment Review](<05-data-expansion/FRED ALFRED Macro Experiment Review.md>)
+- [Macro Features New Information And Return Degradation](<05-data-expansion/Macro Features New Information And Return Degradation.md>)
+- [Macro Regime Review And Interaction Features](<05-data-expansion/Macro Regime Review And Interaction Features.md>)
+- [Macro Interaction Ablation Review](<05-data-expansion/Macro Interaction Ablation Review.md>)
 - [Short History Evaluation And EDGAR Full Run](<05-data-expansion/Short History Evaluation And EDGAR Full Run.md>)
 - [Stock Pool Cleaning And History Buckets](<05-data-expansion/Stock Pool Cleaning And History Buckets.md>)
 - [Security Master Data](<05-data-expansion/Security Master Data.md>)
@@ -80,7 +104,14 @@
 - [Sector Specific Error Review](<06-portfolio-risk/Sector Specific Error Review.md>)
 - [Short History Score Calibration](<06-portfolio-risk/Short History Score Calibration.md>)
 - [Short History Stock Review](<06-portfolio-risk/Short History Stock Review.md>)
+- [CRSP History Bucket Top10 And Industry Unknown Review](<06-portfolio-risk/CRSP History Bucket Top10 And Industry Unknown Review.md>)
+- [CRSP Industry Constraint And Relative Feature Recovery](<06-portfolio-risk/CRSP Industry Constraint And Relative Feature Recovery.md>)
+- [CRSP Portfolio Construction And Risk Filter Repair](<06-portfolio-risk/CRSP Portfolio Construction And Risk Filter Repair.md>)
 - [Portfolio Risk Control](<06-portfolio-risk/Portfolio Risk Control.md>)
+
+### 07 Personal Quant
+
+- [Personal Quant V1 Direction](<07-personal-quant/Personal Quant V1 Direction.md>)
 
 ### 90 Case Studies
 
@@ -110,10 +141,7 @@
 
 ## 当前优先级
 
-1. 阶段 A：学习文档层级整理。
-2. 阶段 B：配置化研究流水线。
-3. 阶段 E：数据口径升级。
-4. 阶段 C：标签升级为未来 5 日收益。
-5. 阶段 D：股票池清洗与分行业。
-6. 阶段 F：TopK 回测与成本后评估。
-7. 阶段 G：财报、估值、行业、宏观、新闻特征扩展。
+1. 大型 CRSP / Alpha158 / EDGAR / macro 研究阶段先收束，结论见 [CRSP Large Research Stage Summary](<05-data-expansion/CRSP Large Research Stage Summary.md>)。
+2. 当前判断：这条大型高维 ML 路线适合学习研究流程，但不适合作为个人小资金实盘主线。
+3. 下一阶段切换到 [Personal Quant V1 Direction](<07-personal-quant/Personal Quant V1 Direction.md>)：少变量、少持仓、可解释、可复盘、可手工执行。
+4. 新代码从 `analysis/personal_quant_v1/` 干净开始，旧 `analysis/nasdaq_top500_score/` 保留为研究资料库。

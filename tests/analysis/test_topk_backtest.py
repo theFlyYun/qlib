@@ -6,7 +6,7 @@ from pathlib import Path
 import pandas as pd
 import yaml
 
-from analysis.nasdaq_top500_score.backtest import compute_sector_momentum, run_topk_backtest
+from analysis.nasdaq_top500_score.backtest import compute_sector_momentum, load_market_data, run_topk_backtest, select_for_signal_date
 from analysis.nasdaq_top500_score.run_qlib_alpha158_lightgbm import run_strategy_comparison
 
 
@@ -108,8 +108,31 @@ def test_topk_backtest_uses_signal_entry_exit_costs_and_writes_outputs(tmp_path:
     }
 
     result = run_topk_backtest(predictions, universe, config, paths)
+    preloaded_paths = dict(paths)
+    preloaded_paths.update(
+        {
+            "backtest_nav_csv": tmp_path / "preloaded_backtest_nav.csv",
+            "backtest_positions_csv": tmp_path / "preloaded_backtest_positions.csv",
+            "backtest_summary": tmp_path / "preloaded_backtest_summary.yaml",
+            "benchmark_summary": tmp_path / "preloaded_benchmark_summary.yaml",
+            "contribution_by_symbol": tmp_path / "preloaded_contribution_by_symbol.csv",
+            "contribution_by_sector": tmp_path / "preloaded_contribution_by_sector.csv",
+            "contribution_by_industry": tmp_path / "preloaded_contribution_by_industry.csv",
+            "exposure_by_sector": tmp_path / "preloaded_exposure_by_sector.csv",
+            "exposure_by_industry": tmp_path / "preloaded_exposure_by_industry.csv",
+            "contribution_summary": tmp_path / "preloaded_contribution_summary.yaml",
+        }
+    )
+    preloaded = run_topk_backtest(
+        predictions,
+        universe,
+        config,
+        preloaded_paths,
+        market_data=load_market_data(source_dir, "close"),
+    )
 
     assert result.summary["enabled"] is True
+    assert preloaded.nav["net_return"].tolist() == result.nav["net_return"].tolist()
     assert result.summary["period_count"] > 0
     assert set(result.positions[result.positions["period"] == 1]["symbol"]) == {"AAA", "BBB"}
     assert math.isclose(float(result.nav.iloc[0]["gross_return"]), 0.05, rel_tol=0, abs_tol=1e-9)
@@ -223,6 +246,29 @@ def test_topk_backtest_point_in_time_filters_use_signal_date_history_and_liquidi
     assert "NEW" not in set(result.positions["symbol"])
     assert result.nav.iloc[0]["candidate_count_before_pit"] == 3
     assert result.nav.iloc[0]["candidate_count_after_pit"] == 2
+
+
+def test_non_bucket_topk_respects_sector_and_industry_constraints() -> None:
+    signal_date = pd.Timestamp("2024-01-02")
+    predictions = pd.DataFrame(
+        [
+            {"datetime": signal_date, "symbol": "T0", "score": 0.99, "sector": "Technology", "industry": "Software 0", "history_bucket": "full_10y"},
+            {"datetime": signal_date, "symbol": "T1", "score": 0.98, "sector": "Technology", "industry": "Software 1", "history_bucket": "full_10y"},
+            {"datetime": signal_date, "symbol": "T2", "score": 0.97, "sector": "Technology", "industry": "Software 2", "history_bucket": "full_10y"},
+            {"datetime": signal_date, "symbol": "H0", "score": 0.80, "sector": "Health Care", "industry": "Biotech", "history_bucket": "full_10y"},
+            {"datetime": signal_date, "symbol": "E0", "score": 0.70, "sector": "Energy", "industry": "Oil", "history_bucket": "full_10y"},
+        ]
+    )
+    config = {
+        "bucket_ranking": {"enabled": False},
+        "industry_constraints": {"enabled": True, "max_sector": 2, "max_industry": 1},
+        "backtest": {"point_in_time_filters": {"enabled": False}},
+    }
+
+    selected, _ = select_for_signal_date(predictions, signal_date, config, top_n=4)
+
+    assert selected["sector"].value_counts().to_dict()["Technology"] == 2
+    assert selected["symbol"].tolist() == ["T0", "T1", "H0", "E0"]
 
 
 def test_sector_momentum_uses_only_prices_visible_on_signal_date() -> None:

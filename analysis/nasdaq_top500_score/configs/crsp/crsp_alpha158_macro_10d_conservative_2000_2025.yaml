@@ -1,0 +1,102 @@
+extends: crsp_alpha158_10d_conservative_2000_2025.yaml
+
+experiment:
+  name: crsp_alpha158_macro_10d_conservative_2000_2025
+  output_dir: analysis/nasdaq_top500_score/runs/crsp_alpha158_macro_10d_conservative_2000_2025
+
+strict_pit:
+  enabled: true
+  mode: full_pit_dynamic
+  enforcement: fail
+  pit_industry_classification: false
+  strict_vintage_macro_only: false
+
+fundamentals:
+  enabled: false
+  source: sec_edgar
+
+market_features:
+  enabled: false
+
+industry_constraints:
+  enabled: false
+
+macro_interactions:
+  enabled: false
+
+macro_features:
+  enabled: true
+  source: fred_alfred
+  cache_dir: analysis/nasdaq_top500_score/runs/crsp_shared_fred_alfred_cache
+  output_type: 4
+  realtime_start: "1776-07-04"
+  realtime_end: "2025-12-31"
+  effective_lag_trading_days: 1
+  history_buffer_days: 370
+  append_to_model: true
+  series:
+    - id: DGS10
+      name: dgs10
+      output_type: 1
+      realtime_mode: latest
+      effective_date_source: observation_date
+      max_staleness_days: 20
+      transforms: [level, change_20d, change_60d]
+    - id: DGS2
+      name: dgs2
+      output_type: 1
+      realtime_mode: latest
+      effective_date_source: observation_date
+      max_staleness_days: 20
+      transforms: [level, change_20d, change_60d]
+    - id: FEDFUNDS
+      name: fed_funds
+      max_staleness_days: 120
+      transforms: [level, change_3m]
+    - id: CPIAUCSL
+      name: cpi
+      max_staleness_days: 120
+      transforms: [level, yoy, change_3m]
+    - id: UNRATE
+      name: unemployment
+      max_staleness_days: 120
+      transforms: [level, change_3m]
+    - id: INDPRO
+      name: industrial_production
+      max_staleness_days: 120
+      transforms: [level, yoy, change_3m]
+    - id: BAA10Y
+      name: baa10y_credit_spread
+      output_type: 1
+      realtime_mode: latest
+      effective_date_source: observation_date
+      max_staleness_days: 20
+      transforms: [level, change_20d, change_60d]
+    - id: VIXCLS
+      name: vix
+      output_type: 1
+      realtime_mode: latest
+      effective_date_source: observation_date
+      max_staleness_days: 10
+      transforms: [level, change_20d, zscore_60d]
+    - id: DCOILWTICO
+      name: wti_oil
+      output_type: 1
+      realtime_mode: latest
+      effective_date_source: observation_date
+      max_staleness_days: 20
+      transforms: [level, pct_change_20d, pct_change_60d]
+    - id: DTWEXBGS
+      name: broad_dollar_index
+      output_type: 1
+      realtime_mode: latest
+      effective_date_source: observation_date
+      max_staleness_days: 20
+      transforms: [level, pct_change_20d, pct_change_60d]
+  derived:
+    - name: yield_curve_10y_2y
+      operation: subtract
+      left: dgs10
+      right: dgs2
+      transforms: [level, change_20d, change_60d]
+      inverted_flag: true

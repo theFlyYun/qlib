@@ -1,0 +1,30 @@
+extends: ../crsp/crsp_alpha158_macro_interactions_10d_conservative_2000_2025.yaml
+
+experiment:
+  name: crsp_macro_ablation_drop_dollar_oil_interactions_10d_conservative_2000_2025
+  output_dir: analysis/nasdaq_top500_score/runs/crsp_macro_ablation_drop_dollar_oil_interactions_10d_conservative_2000_2025
+
+report:
+  lightweight: true
+
+macro_interactions:
+  enabled: true
+  interactions:
+    - name: macro_x_vix_zscore_momentum_20d
+      left: macro_vix_zscore_60d
+      right: market_momentum_20d
+    - name: macro_x_vix_change_volatility_20d
+      left: macro_vix_change_20d
+      right: market_volatility_20d
+    - name: macro_x_dgs10_momentum_60d
+      left: macro_dgs10
+      right: market_momentum_60d
+    - name: macro_x_dgs10_change_volatility_20d
+      left: macro_dgs10_change_20d
+      right: market_volatility_20d
+    - name: macro_x_curve_inverted_momentum_120d
+      left: macro_yield_curve_10y_2y_inverted
+      right: market_momentum_120d
+    - name: macro_x_credit_change_volatility_60d
+      left: macro_baa10y_credit_spread_change_20d
+      right: market_volatility_60d

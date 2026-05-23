@@ -291,6 +291,21 @@ def select_bucketed_top(
     return selected
 
 
+def select_constrained_top(
+    predictions: pd.DataFrame,
+    top_n: int,
+    industry_constraints: dict[str, Any] | None = None,
+) -> pd.DataFrame:
+    score_column = ranking_score_column(predictions)
+    industry_constraints = industry_constraints or {}
+    candidates = predictions.sort_values(score_column, ascending=False).reset_index(drop=True)
+    selected_rows: list[pd.Series] = []
+    chosen = choose_with_constraints(candidates, int(top_n), selected_rows, industry_constraints)
+    selected = chosen.sort_values(score_column, ascending=False).head(top_n).reset_index(drop=True)
+    selected["selected_rank"] = range(1, len(selected) + 1)
+    return selected
+
+
 def choose_with_constraints(
     candidates: pd.DataFrame,
     limit: int,

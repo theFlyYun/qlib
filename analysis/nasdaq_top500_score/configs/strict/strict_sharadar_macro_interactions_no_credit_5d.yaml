@@ -1,0 +1,24 @@
+extends: strict_sharadar_macro_direct_5d.yaml
+
+experiment:
+  name: strict_sharadar_macro_interactions_no_credit_5d
+  output_dir: analysis/nasdaq_top500_score/runs/strict_sharadar_macro_interactions_no_credit_5d
+
+macro_features:
+  append_to_model: false
+
+macro_interactions:
+  enabled: true
+  interactions:
+    - name: macro_x_vix_zscore_momentum_20d
+      left: macro_vix_zscore_60d
+      right: market_momentum_20d
+    - name: macro_x_vix_change_volatility_20d
+      left: macro_vix_change_20d
+      right: market_volatility_20d
+    - name: macro_x_dgs10_price_to_sales
+      left: macro_dgs10
+      right: edgar_price_to_sales
+    - name: macro_x_dgs10_change_price_to_book
+      left: macro_dgs10_change_20d
+      right: edgar_price_to_book

@@ -184,3 +184,17 @@ def test_macro_config_is_parseable() -> None:
     assert config["macro_features"]["enabled"] is True
     assert config["macro_features"]["output_type"] == 4
     assert config["training"]["reuse_test_predictions"] is False
+
+
+def test_macro_interaction_config_is_parseable() -> None:
+    config = load_config(
+        Path(
+            "analysis/nasdaq_top500_score/configs/"
+            "nasdaq_alpha158_edgar_macro_interactions_lgbm_10y_frozen_2023_top500_5d_pit_safe.yaml"
+        )
+    )
+
+    assert config["macro_features"]["enabled"] is True
+    assert config["macro_features"]["append_to_model"] is False
+    assert config["macro_interactions"]["enabled"] is True
+    assert config["macro_regime_review"]["enabled"] is True

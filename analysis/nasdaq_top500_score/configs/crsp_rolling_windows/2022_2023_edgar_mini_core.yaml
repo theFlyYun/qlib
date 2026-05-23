@@ -1,0 +1,22 @@
+extends: ../crsp_2010/crsp_alpha158_edgar_mini_core_10d_conservative_2010_2025.yaml
+
+experiment:
+  name: crsp_roll_2022_2023_edgar_mini_core
+  output_dir: analysis/nasdaq_top500_score/runs/crsp_rolling_windows/2022_2023/edgar_mini_core
+
+split:
+  method: date
+  warmup_days: 60
+  train: {start: "2010-01-01", end: "2019-12-31"}
+  valid: {start: "2020-01-01", end: "2021-12-31"}
+  test: {start: "2022-01-01", end: "2023-12-31"}
+
+strategy_comparison:
+  enabled: true
+  variants:
+    - name: global_top10
+      description: Global Top10 without sector or industry caps.
+      industry_constraints: {enabled: false}
+    - name: sector_cap_2_top10
+      description: Global Top10 with max 2 names per SIC2 sector and max 2 per SIC4 industry.
+      industry_constraints: {enabled: true, max_sector: 2, max_industry: 2}

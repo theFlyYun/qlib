@@ -1,0 +1,178 @@
+experiment:
+  name: crsp_alpha158_10d_2000_2025
+  output_dir: analysis/nasdaq_top500_score/runs/crsp_alpha158_10d_2000_2025
+
+strict_pit:
+  enabled: true
+  mode: full_pit_dynamic
+  enforcement: fail
+  pit_industry_classification: false
+
+universe:
+  provider: crsp
+  mode: monthly_dynamic_top500
+  top_n_by_market_cap: 500
+  min_history_rows: 180
+
+data:
+  source: crsp
+  start_date: "2000-01-03"
+  end_date: "2025-12-31"
+  freq: day
+  price_adjustment: crsp_ret_adjusted
+  vwap_method: ohlc_mean
+
+crsp:
+  raw_csv_path: analysis/nasdaq_top500_score/runs/crsp_daily_raw/crsp0025.csv
+  warehouse_dir: analysis/nasdaq_top500_score/runs/crsp_warehouse
+  prepared_dataset:
+    enabled: true
+    root_dir: analysis/nasdaq_top500_score/runs/crsp_prepared_datasets
+    copy_mode: symlink
+    force_rebuild: false
+  build_warehouse_if_missing: true
+  force_rebuild_warehouse: false
+  force_rebuild_membership: false
+  chunk_rows: 250000
+  label_horizon_days: 10
+  label_only_member_dates: true
+  major_exchanges: [N, Q, A]
+  exclude_name_terms:
+    - warrant
+    - right
+    - unit
+    - preferred
+    - depositary
+    - note
+    - bond
+    - debenture
+    - fund
+
+fundamentals:
+  enabled: false
+  source: sec_edgar
+
+market_features:
+  enabled: false
+
+macro_features:
+  enabled: false
+
+history_buckets:
+  enabled: true
+  thresholds:
+    full_10y: 2520
+    5_10y: 1260
+    2_5y: 504
+    lt_2y: 180
+
+bucket_ranking:
+  enabled: false
+
+industry_constraints:
+  enabled: false
+
+liquidity_filter:
+  enabled: false
+  min_latest_close: 1.0
+  min_avg_dollar_volume_20d: 5000000
+  min_median_dollar_volume_60d: 2000000
+  max_zero_volume_ratio_60d: 0.05
+  min_recent_trading_days_60d: 40
+
+label:
+  expression: $label_10d_total_return
+  name: LABEL0
+
+features:
+  handler: Alpha158
+  instruments: all
+
+split:
+  method: date
+  warmup_days: 60
+  train:
+    start: "2000-01-03"
+    end: "2021-12-31"
+  valid:
+    start: "2022-01-01"
+    end: "2023-12-31"
+  test:
+    start: "2024-01-01"
+    end: "2025-12-31"
+
+model:
+  class: LGBModel
+  kwargs:
+    loss: mse
+    learning_rate: 0.05
+    num_leaves: 64
+    max_depth: 8
+    n_estimators: 300
+    subsample: 0.85
+    colsample_bytree: 0.85
+    lambda_l1: 1.0
+    lambda_l2: 10.0
+    num_threads: 8
+    seed: 20260521
+    bagging_seed: 20260521
+    feature_fraction_seed: 20260521
+    data_random_seed: 20260521
+    drop_seed: 20260521
+    deterministic: true
+    force_col_wise: true
+
+training:
+  seed: 20260521
+  deterministic: true
+  reuse_test_predictions: false
+
+runtime:
+  run_mode: full
+  qlib_dump_workers: 8
+  market_feature_workers: 4
+  stress_workers: 2
+
+report:
+  top_n: 10
+
+backtest:
+  enabled: true
+  strategy: topk
+  top_n: 10
+  holding_days: 10
+  rebalance_days: 10
+  entry_lag_days: 1
+  price: open
+  cost_bps: 10
+  min_positions: 5
+  periods_per_year: 25.2
+  point_in_time_filters:
+    enabled: true
+    history_bucket_asof: true
+    liquidity_asof: true
+    min_history_rows: 180
+    liquidity:
+      min_latest_close: 1.0
+      min_avg_dollar_volume_20d: 5000000
+      min_median_dollar_volume_60d: 2000000
+      max_zero_volume_ratio_60d: 0.05
+      min_recent_trading_days_60d: 40
+
+benchmark:
+  enabled: true
+  source: fred
+  symbol: SP500
+  series_id: SP500
+  name: S&P 500 Index
+  refresh: false
+
+attribution:
+  enabled: true
+  top_n: 10
+
+backtest_stress:
+  enabled: true
+  entry_lag_days: [1, 2]
+  entry_prices: [open, vwap_proxy, close]
+  cost_bps: [10, 25, 50, 100]

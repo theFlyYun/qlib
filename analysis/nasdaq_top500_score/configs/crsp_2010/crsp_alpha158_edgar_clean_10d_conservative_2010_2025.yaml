@@ -1,0 +1,49 @@
+extends: crsp_alpha158_edgar_10d_conservative_2010_2025.yaml
+
+experiment:
+  name: crsp_alpha158_edgar_clean_10d_conservative_2010_2025
+  output_dir: analysis/nasdaq_top500_score/runs/crsp_alpha158_edgar_clean_10d_conservative_2010_2025
+
+edgar_coverage_review:
+  enabled: true
+
+fundamentals:
+  cleaning:
+    enabled: true
+    mode: static_rules
+    negative_valuation_policy: set_nan
+  feature_groups:
+    profitability_quality:
+      - gross_margin
+      - operating_margin
+      - net_margin
+      - roe
+      - roa
+      - operating_cash_flow_ttm
+      - free_cash_flow_ttm
+      - cfo_to_net_income
+      - fcf_margin
+    growth:
+      - revenue_yoy_growth
+      - net_income_yoy_growth
+      - eps_yoy_growth
+      - assets_yoy_growth
+    balance_sheet_stability:
+      - revenue_ttm
+      - assets
+      - equity
+      - cash
+      - shares_diluted
+      - liabilities_to_assets
+      - cash_to_assets
+    valuation:
+      - price_to_sales
+      - price_to_book
+      - price_to_earnings
+      - market_cap_to_fcf
+    filing_state:
+      - days_since_last_10q
+      - days_since_last_10k
+      - filing_lag_days
+      - is_recent_filing
+      - is_amended_filing

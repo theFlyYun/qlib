@@ -1,0 +1,20 @@
+extends: crsp_alpha158_edgar_repaired_quality_10d_conservative_2010_2025.yaml
+
+experiment:
+  name: crsp_alpha158_edgar_quality_core_10d_conservative_2010_2025
+  output_dir: analysis/nasdaq_top500_score/runs/crsp_alpha158_edgar_quality_core_10d_conservative_2010_2025
+
+edgar_effectiveness_review:
+  enabled: true
+  min_observations: 100
+  quantiles: 5
+
+fundamentals:
+  enable_valuation: false
+  include_feature_groups:
+    - profitability_quality
+    - filing_state
+    - coverage_state
+
+report:
+  lightweight: true

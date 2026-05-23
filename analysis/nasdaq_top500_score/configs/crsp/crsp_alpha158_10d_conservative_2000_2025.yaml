@@ -1,0 +1,17 @@
+extends: crsp_alpha158_10d_2000_2025.yaml
+
+experiment:
+  name: crsp_alpha158_10d_conservative_2000_2025
+  output_dir: analysis/nasdaq_top500_score/runs/crsp_alpha158_10d_conservative_2000_2025
+
+model:
+  kwargs:
+    learning_rate: 0.03
+    num_leaves: 16
+    max_depth: 4
+    n_estimators: 300
+    lambda_l1: 5.0
+    lambda_l2: 50.0
+    min_data_in_leaf: 500
+    subsample: 0.85
+    colsample_bytree: 0.75

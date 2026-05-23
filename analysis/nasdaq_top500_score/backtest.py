@@ -15,13 +15,13 @@ import yaml
 try:
     from .data_sources.base import parse_float
     from .data_sources.nasdaq_public import NASDAQ_HISTORICAL_URL, fetch_json, nasdaq_history_window
-    from .selection import select_bucketed_top
+    from .selection import select_bucketed_top, select_constrained_top
     from .selection.history_buckets import apply_score_calibration, assign_history_bucket, ranking_score_column
     from .selection.liquidity import liquidity_exclusion_reason
 except ImportError:  # pragma: no cover - supports running the pipeline as a script.
     from data_sources.base import parse_float
     from data_sources.nasdaq_public import NASDAQ_HISTORICAL_URL, fetch_json, nasdaq_history_window
-    from selection import select_bucketed_top
+    from selection import select_bucketed_top, select_constrained_top
     from selection.history_buckets import apply_score_calibration, assign_history_bucket, ranking_score_column
     from selection.liquidity import liquidity_exclusion_reason
 
@@ -38,6 +38,9 @@ def run_topk_backtest(
     universe: pd.DataFrame,
     config: dict[str, Any],
     paths: dict[str, Path],
+    *,
+    market_data: dict[str, pd.DataFrame] | None = None,
+    market_profile_cache: dict[tuple[str, pd.Timestamp], dict[str, Any]] | None = None,
 ) -> BacktestResult:
     backtest_config = config.get("backtest", {})
     if not backtest_config.get("enabled", False):
@@ -50,9 +53,11 @@ def run_topk_backtest(
         return result
 
     price_column = str(backtest_config.get("price", "close"))
-    market_data = load_market_data(paths["source_dir"], price_column)
+    if market_data is None:
+        market_data = load_market_data(paths["source_dir"], price_column)
     close = price_matrix_from_market_data(market_data)
     history = read_history_buckets(paths["history_buckets_csv"])
+    membership = read_membership(paths.get("membership_csv"))
     enriched = enrich_predictions(predictions, universe, history)
     calendar = read_calendar(paths["qlib_dir"])
     calendar_index = {date: index for index, date in enumerate(calendar)}
@@ -85,7 +90,15 @@ def run_topk_backtest(
 
         entry_date = calendar[entry_index]
         exit_date = calendar[exit_index]
-        selected, filter_stats = select_for_signal_date(enriched, signal_ts, config, top_n, market_data)
+        selected, filter_stats = select_for_signal_date(
+            enriched,
+            signal_ts,
+            config,
+            top_n,
+            market_data,
+            membership,
+            market_profile_cache=market_profile_cache,
+        )
         tradable_positions = build_position_returns(selected, close, entry_date, exit_date)
         if len(tradable_positions) < min_positions:
             skipped_periods += 1
@@ -173,10 +186,19 @@ def select_for_signal_date(
     config: dict[str, Any],
     top_n: int,
     market_data: dict[str, pd.DataFrame] | None = None,
+    membership: pd.DataFrame | None = None,
+    market_profile_cache: dict[tuple[str, pd.Timestamp], dict[str, Any]] | None = None,
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
     day = enriched[enriched["datetime"] == signal_date].copy()
     day = day.sort_values("score", ascending=False).reset_index(drop=True)
-    day, filter_stats = apply_point_in_time_filters(day, signal_date, config, market_data or {})
+    before_membership_count = len(day)
+    day = filter_day_by_membership(day, signal_date, membership)
+    after_membership_count = len(day)
+    membership_filter_enabled = membership is not None and not membership.empty and "effective_start" in membership.columns
+    day, filter_stats = apply_point_in_time_filters(day, signal_date, config, market_data or {}, market_profile_cache)
+    filter_stats["membership_filter_enabled"] = bool(membership_filter_enabled)
+    filter_stats["candidate_count_before_membership"] = int(before_membership_count)
+    filter_stats["candidate_count_after_membership"] = int(after_membership_count)
     before_calibration_count = len(day)
     day = apply_score_calibration(day, config)
     filter_stats["score_calibration_enabled"] = bool(config.get("score_calibration", {}).get("enabled", False))
@@ -202,9 +224,41 @@ def select_for_signal_date(
         filter_stats.update(constraint_stats)
         return select_bucketed_top(day, ranking_config, top_n, industry_constraints), filter_stats
 
-    selected = day.head(top_n).copy()
-    selected["selected_rank"] = range(1, len(selected) + 1)
+    industry_constraints, constraint_stats = resolve_industry_constraints_for_signal(
+        day,
+        signal_ts=signal_date,
+        config=config,
+        market_data=market_data or {},
+    )
+    filter_stats.update(constraint_stats)
+    selected = select_constrained_top(day, top_n, industry_constraints)
     return selected, filter_stats
+
+
+def filter_day_by_membership(
+    day: pd.DataFrame,
+    signal_date: pd.Timestamp,
+    membership: pd.DataFrame | None,
+) -> pd.DataFrame:
+    if day.empty or membership is None or membership.empty or "effective_start" not in membership.columns:
+        return day
+    working = membership.copy()
+    symbol_column = "symbol" if "symbol" in working.columns else "instrument"
+    if symbol_column not in working.columns:
+        return day
+    signal_ts = pd.Timestamp(signal_date).normalize()
+    working[symbol_column] = working[symbol_column].astype(str).str.upper()
+    working["effective_start"] = pd.to_datetime(working["effective_start"], errors="coerce").dt.normalize()
+    working["effective_end"] = pd.to_datetime(working["effective_end"], errors="coerce").dt.normalize()
+    active = working[
+        (working["effective_start"].notna())
+        & (working["effective_start"] <= signal_ts)
+        & (working["effective_end"].isna() | (working["effective_end"] >= signal_ts))
+    ]
+    if active.empty:
+        return day.iloc[0:0].copy()
+    active_symbols = set(active[symbol_column])
+    return day[day["symbol"].astype(str).str.upper().isin(active_symbols)].copy().reset_index(drop=True)
 
 
 def resolve_industry_constraints_for_signal(
@@ -294,6 +348,7 @@ def apply_point_in_time_filters(
     signal_date: pd.Timestamp,
     config: dict[str, Any],
     market_data: dict[str, pd.DataFrame],
+    market_profile_cache: dict[tuple[str, pd.Timestamp], dict[str, Any]] | None = None,
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
     pit_config = config.get("backtest", {}).get("point_in_time_filters", {})
     if not pit_config.get("enabled", False):
@@ -312,7 +367,13 @@ def apply_point_in_time_filters(
 
     for row in day.to_dict("records"):
         symbol = str(row["symbol"]).upper()
-        profile = build_asof_market_profile(symbol, market_data, signal_date)
+        cache_key = (symbol, pd.Timestamp(signal_date).normalize())
+        if market_profile_cache is not None and cache_key in market_profile_cache:
+            profile = market_profile_cache[cache_key]
+        else:
+            profile = build_asof_market_profile(symbol, market_data, signal_date)
+            if market_profile_cache is not None:
+                market_profile_cache[cache_key] = profile
         history_rows_asof = int(profile["rows"])
         if history_asof:
             row["history_bucket"] = assign_history_bucket(history_rows_asof, config.get("history_buckets", {}))
@@ -359,23 +420,23 @@ def build_asof_market_profile(
     if frame is None or frame.empty:
         return empty_asof_market_profile(symbol, "missing market data")
 
-    working = frame[frame.index <= signal_date].copy()
-    if working.empty:
+    signal_ts = pd.Timestamp(signal_date).normalize()
+    end_pos = int(frame.index.searchsorted(signal_ts, side="right"))
+    if end_pos <= 0:
         return empty_asof_market_profile(symbol, "no data as of signal date")
 
-    working = working.dropna(subset=["close", "volume", "execution_price"])
-    if working.empty:
+    latest = frame.iloc[end_pos - 1]
+    if pd.isna(latest["close"]) or pd.isna(latest["volume"]) or pd.isna(latest["execution_price"]):
         return empty_asof_market_profile(symbol, "no usable rows as of signal date")
 
-    working["dollar_volume"] = working["execution_price"] * working["volume"]
-    recent_20 = working.tail(20)
-    recent_60 = working.tail(60)
+    recent_20 = frame.iloc[max(0, end_pos - 20) : end_pos]
+    recent_60 = frame.iloc[max(0, end_pos - 60) : end_pos]
     recent_60_count = int(len(recent_60))
     zero_volume_days = int((recent_60["volume"] <= 0).sum())
     return {
         "symbol": symbol,
-        "rows": int(len(working)),
-        "latest_close": float(working["close"].iloc[-1]),
+        "rows": int(end_pos),
+        "latest_close": float(latest["close"]),
         "avg_dollar_volume_20d": float(recent_20["dollar_volume"].mean()),
         "median_dollar_volume_60d": float(recent_60["dollar_volume"].median()),
         "zero_volume_ratio_60d": zero_volume_days / recent_60_count if recent_60_count else 1.0,
@@ -441,8 +502,9 @@ def load_market_data(source_dir: Path, price_column: str) -> dict[str, pd.DataFr
         frame["close"] = pd.to_numeric(frame["close"], errors="coerce")
         frame["volume"] = pd.to_numeric(frame["volume"], errors="coerce")
         frame["execution_price"] = pd.to_numeric(frame[price_column], errors="coerce")
-        frame = frame.set_index("date").sort_index()
-        series[symbol] = frame[["close", "volume", "execution_price"]]
+        frame["dollar_volume"] = frame["execution_price"] * frame["volume"]
+        frame = frame.dropna(subset=["close", "volume", "execution_price"]).set_index("date").sort_index()
+        series[symbol] = frame[["close", "volume", "execution_price", "dollar_volume"]]
     return series
 
 
@@ -838,6 +900,12 @@ def write_empty_attribution_outputs(paths: dict[str, Path]) -> None:
 def read_history_buckets(path: Path) -> pd.DataFrame:
     if not path.exists():
         return pd.DataFrame(columns=["symbol", "history_bucket"])
+    return pd.read_csv(path)
+
+
+def read_membership(path: Path | None) -> pd.DataFrame:
+    if path is None or not path.exists():
+        return pd.DataFrame()
     return pd.read_csv(path)
 
 

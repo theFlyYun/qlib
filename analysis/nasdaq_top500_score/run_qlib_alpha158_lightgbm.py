@@ -12,33 +12,59 @@ import os
 import random
 import shutil
 import sys
+from contextlib import nullcontext
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, ContextManager
 
 import numpy as np
 import pandas as pd
 import yaml
+from pandas.errors import EmptyDataError
 
 try:
-    from backtest import run_topk_backtest
-    from data_sources import DataSourceUnavailable, create_data_source
+    from backtest_stress import run_backtest_stress_tests
+    from backtest import load_market_data, run_topk_backtest
+    from crsp_industry_validation import run_crsp_industry_validation
+    from data_quality import DataQualityError, run_data_quality_validation
+    from data_sources import DataSourceUnavailable, PreparedData, create_data_source
+    from data_sources.crsp import crsp_label_column
+    from edgar_coverage import (
+        build_edgar_coverage_review,
+        build_edgar_effectiveness_review,
+    )
     from fundamentals import build_fundamental_features
     from industry import build_industry_feature_frame
+    from industry_mapping import build_industry_mapping
     from macro_features import build_macro_feature_frame
+    from macro_interactions import build_macro_interaction_frame
+    from macro_regime_review import run_macro_regime_review
     from market_features import build_market_feature_frame
+    from runtime_profile import RuntimeProfiler
     from sector_error_review import run_sector_error_review
     from selection import apply_bucket_ranking, apply_liquidity_filter, build_history_buckets
     from short_history_review import run_short_history_review
     from within_sector import run_within_sector_review
 except ImportError:  # pragma: no cover - supports importing this script as a module in tests.
-    from analysis.nasdaq_top500_score.backtest import run_topk_backtest
-    from analysis.nasdaq_top500_score.data_sources import DataSourceUnavailable, create_data_source
+    from analysis.nasdaq_top500_score.backtest_stress import run_backtest_stress_tests
+    from analysis.nasdaq_top500_score.backtest import load_market_data, run_topk_backtest
+    from analysis.nasdaq_top500_score.crsp_industry_validation import run_crsp_industry_validation
+    from analysis.nasdaq_top500_score.data_quality import DataQualityError, run_data_quality_validation
+    from analysis.nasdaq_top500_score.data_sources import DataSourceUnavailable, PreparedData, create_data_source
+    from analysis.nasdaq_top500_score.data_sources.crsp import crsp_label_column
+    from analysis.nasdaq_top500_score.edgar_coverage import (
+        build_edgar_coverage_review,
+        build_edgar_effectiveness_review,
+    )
     from analysis.nasdaq_top500_score.fundamentals import build_fundamental_features
     from analysis.nasdaq_top500_score.industry import build_industry_feature_frame
+    from analysis.nasdaq_top500_score.industry_mapping import build_industry_mapping
     from analysis.nasdaq_top500_score.macro_features import build_macro_feature_frame
+    from analysis.nasdaq_top500_score.macro_interactions import build_macro_interaction_frame
+    from analysis.nasdaq_top500_score.macro_regime_review import run_macro_regime_review
     from analysis.nasdaq_top500_score.market_features import build_market_feature_frame
+    from analysis.nasdaq_top500_score.runtime_profile import RuntimeProfiler
     from analysis.nasdaq_top500_score.sector_error_review import run_sector_error_review
     from analysis.nasdaq_top500_score.selection import apply_bucket_ranking, apply_liquidity_filter, build_history_buckets
     from analysis.nasdaq_top500_score.short_history_review import run_short_history_review
@@ -48,7 +74,13 @@ WORKSPACE = Path(__file__).resolve().parents[2]
 ROOT = Path(__file__).resolve().parent
 DEFAULT_CONFIG = ROOT / "configs" / "nasdaq_alpha158_lgbm_1d.yaml"
 LOCAL_SECRET_FILES = [WORKSPACE / ".env", ROOT / "configs" / "local_secrets.env"]
-SECRET_ENV_KEYS = {"FRED_API_KEY", "SEC_EDGAR_USER_AGENT"}
+SECRET_ENV_KEYS = {
+    "FRED_API_KEY",
+    "SEC_EDGAR_USER_AGENT",
+    "NASDAQ_DATA_LINK_API_KEY",
+    "SHARADAR_API_KEY",
+    "DATABENTO_API_KEY",
+}
 
 
 def parse_args() -> argparse.Namespace:
@@ -88,9 +120,31 @@ def load_local_secret_env() -> None:
 def load_config(config_path: Path) -> dict[str, Any]:
     load_local_secret_env()
     resolved_path = resolve_path(config_path)
+    config = load_config_yaml(resolved_path)
+    config["_config_path"] = str(resolved_path)
+    validate_config(config)
+    return config
+
+
+def load_config_yaml(resolved_path: Path, seen: set[Path] | None = None) -> dict[str, Any]:
+    seen = seen or set()
+    resolved_path = resolved_path.resolve()
+    if resolved_path in seen:
+        raise ValueError(f"config extends cycle detected at {resolved_path}")
+    seen.add(resolved_path)
     with resolved_path.open("r", encoding="utf-8") as file:
         config = yaml.safe_load(file) or {}
+    parent = config.pop("extends", None)
+    if not parent:
+        return config
+    parent_path = Path(parent).expanduser()
+    if not parent_path.is_absolute():
+        parent_path = resolved_path.parent / parent_path
+    parent_config = load_config_yaml(parent_path, seen)
+    return deep_merge_dicts(parent_config, config)
 
+
+def validate_required_sections(config: dict[str, Any]) -> None:
     required_sections = [
         "experiment",
         "universe",
@@ -105,15 +159,12 @@ def load_config(config_path: Path) -> dict[str, Any]:
     if missing:
         raise ValueError(f"missing config section(s): {', '.join(missing)}")
 
-    config["_config_path"] = str(resolved_path)
-    validate_config(config)
-    return config
-
 
 def validate_config(config: dict[str, Any]) -> None:
+    validate_required_sections(config)
     source = config["data"]["source"]
-    if source not in {"nasdaq_public", "norgate"}:
-        raise ValueError("supported data.source values: nasdaq_public, norgate")
+    if source not in {"nasdaq_public", "crsp", "norgate", "sharadar", "databento"}:
+        raise ValueError("supported data.source values: nasdaq_public, crsp, norgate, sharadar, databento")
     if source == "nasdaq_public" and config["universe"]["exchange"] != "NASDAQ":
         raise ValueError("nasdaq_public currently supports universe.exchange: NASDAQ")
     security_master = config["universe"].get("security_master", {})
@@ -139,6 +190,45 @@ def validate_config(config: dict[str, Any]) -> None:
         missing.extend(key for key in required_data_keys if key not in config["data"])
         if missing:
             raise ValueError(f"norgate config missing key(s): {', '.join(missing)}")
+    if source == "crsp":
+        required_universe_keys = ["top_n_by_market_cap", "min_history_rows"]
+        required_data_keys = ["start_date", "end_date", "price_adjustment", "vwap_method"]
+        required_crsp_keys = ["raw_csv_path", "warehouse_dir", "label_horizon_days"]
+        missing = [key for key in required_universe_keys if key not in config["universe"]]
+        missing.extend(key for key in required_data_keys if key not in config["data"])
+        missing.extend(key for key in required_crsp_keys if key not in config.get("crsp", {}))
+        if missing:
+            raise ValueError(f"crsp config missing key(s): {', '.join(missing)}")
+        validate_date_order(config["data"]["start_date"], config["data"]["end_date"], "crsp data")
+        if int(config["crsp"]["label_horizon_days"]) <= 0:
+            raise ValueError("crsp.label_horizon_days must be positive")
+        if config["data"]["price_adjustment"] != "crsp_ret_adjusted":
+            raise ValueError("crsp data.price_adjustment must be crsp_ret_adjusted")
+        expected_label = f"${crsp_label_column(int(config['crsp']['label_horizon_days']))}"
+        if config["label"]["expression"] != expected_label:
+            raise ValueError(f"crsp label.expression must be {expected_label}")
+    if source == "sharadar":
+        required_universe_keys = ["as_of_date", "as_of_trade_date", "top_n_by_market_cap", "min_history_rows"]
+        required_data_keys = ["start_date", "end_date", "price_adjustment", "vwap_method"]
+        missing = [key for key in required_universe_keys if key not in config["universe"]]
+        missing.extend(key for key in required_data_keys if key not in config["data"])
+        if missing:
+            raise ValueError(f"sharadar config missing key(s): {', '.join(missing)}")
+        validate_date_order(config["data"]["start_date"], config["universe"]["as_of_trade_date"], "sharadar launch universe")
+        validate_date_order(config["universe"]["as_of_trade_date"], config["data"]["end_date"], "sharadar launch universe")
+        if config["split"]["method"] == "date" and date_value(config["universe"]["as_of_trade_date"]) >= date_value(config["split"]["test"]["start"]):
+            raise ValueError("sharadar launch as_of_trade_date must be before split.test.start")
+    if source == "databento":
+        required_universe_keys = ["as_of_date", "as_of_trade_date", "top_n_by_market_cap", "min_history_rows"]
+        required_data_keys = ["start_date", "end_date", "price_adjustment", "vwap_method"]
+        missing = [key for key in required_universe_keys if key not in config["universe"]]
+        missing.extend(key for key in required_data_keys if key not in config["data"])
+        if missing:
+            raise ValueError(f"databento config missing key(s): {', '.join(missing)}")
+        validate_date_order(config["data"]["start_date"], config["universe"]["as_of_trade_date"], "databento launch universe")
+        validate_date_order(config["universe"]["as_of_trade_date"], config["data"]["end_date"], "databento launch universe")
+        if config["split"]["method"] == "date" and date_value(config["universe"]["as_of_trade_date"]) >= date_value(config["split"]["test"]["start"]):
+            raise ValueError("databento launch as_of_trade_date must be before split.test.start")
     if config["data"]["freq"] != "day":
         raise ValueError("currently supports data.freq: day")
     if config["data"]["vwap_method"] != "ohlc_mean":
@@ -157,8 +247,8 @@ def validate_config(config: dict[str, Any]) -> None:
             raise ValueError("enabled fundamentals require fundamentals.cache_dir")
     industry = config.get("industry", {})
     if industry:
-        if industry.get("source") != "universe":
-            raise ValueError("currently supports industry.source: universe")
+        if industry.get("source", "universe") not in {"universe", "industry_master"}:
+            raise ValueError("currently supports industry.source: universe or industry_master")
         if industry.get("enabled") and not fundamentals.get("enabled", False):
             raise ValueError("enabled industry features require fundamentals.enabled: true")
         if industry.get("enabled") and not industry.get("rank_features"):
@@ -180,11 +270,17 @@ def validate_config(config: dict[str, Any]) -> None:
     validate_attribution(config)
     validate_market_features(config)
     validate_macro_features(config)
+    validate_macro_interactions(config)
+    validate_macro_regime_review(config)
+    validate_strict_pit(config)
+    validate_backtest_stress(config)
     validate_strategy_comparison(config)
     validate_within_sector_review(config)
     validate_sector_error_review(config)
     validate_short_history_review(config)
     validate_training_control(config)
+    validate_runtime_control(config)
+    validate_industry_validation(config)
 
 
 def validate_universe_selection(config: dict[str, Any]) -> None:
@@ -231,8 +327,6 @@ def validate_industry_constraints(config: dict[str, Any]) -> None:
     constraints = config.get("industry_constraints", {})
     if not constraints or not constraints.get("enabled", False):
         return
-    if not config.get("bucket_ranking", {}).get("enabled", False):
-        raise ValueError("enabled industry_constraints requires bucket_ranking.enabled: true")
     for key in ["max_sector", "max_industry"]:
         if key not in constraints:
             raise ValueError(f"enabled industry_constraints requires {key}")
@@ -271,8 +365,8 @@ def validate_backtest(config: dict[str, Any]) -> None:
         raise ValueError("backtest.entry_lag_days must be non-negative")
     if float(backtest.get("cost_bps", 0.0)) < 0:
         raise ValueError("backtest.cost_bps must be non-negative")
-    if backtest.get("price", "close") not in {"close", "vwap"}:
-        raise ValueError("backtest.price must be close or vwap")
+    if backtest.get("price", "close") not in {"close", "open", "vwap"}:
+        raise ValueError("backtest.price must be close, open, or vwap")
     if config.get("bucket_ranking", {}).get("enabled", False) and int(backtest["top_n"]) != int(config["report"]["top_n"]):
         raise ValueError("bucketed backtest requires backtest.top_n to equal report.top_n")
     pit_filters = backtest.get("point_in_time_filters", {})
@@ -332,6 +426,73 @@ def validate_strategy_comparison(config: dict[str, Any]) -> None:
                         raise ValueError(f"sector_momentum_tilt.{key} must be positive")
                 if int(tilt.get("extra_max_sector", 1)) < 0:
                     raise ValueError("sector_momentum_tilt.extra_max_sector must be non-negative")
+
+
+def validate_backtest_stress(config: dict[str, Any]) -> None:
+    stress = config.get("backtest_stress", {})
+    if not stress or not stress.get("enabled", False):
+        return
+    if not config.get("backtest", {}).get("enabled", False):
+        raise ValueError("enabled backtest_stress requires backtest.enabled: true")
+    for value in stress.get("entry_lag_days", []):
+        if int(value) < 0:
+            raise ValueError("backtest_stress.entry_lag_days values must be non-negative")
+    valid_prices = {"close", "open", "vwap", "vwap_proxy"}
+    invalid_prices = set(stress.get("entry_prices", [])) - valid_prices
+    if invalid_prices:
+        raise ValueError(f"backtest_stress.entry_prices unsupported value(s): {', '.join(sorted(invalid_prices))}")
+    for value in stress.get("cost_bps", []):
+        if float(value) < 0:
+            raise ValueError("backtest_stress.cost_bps values must be non-negative")
+
+
+def validate_industry_validation(config: dict[str, Any]) -> None:
+    validation = config.get("industry_validation", {})
+    if not validation or not validation.get("enabled", False):
+        return
+    if config["data"]["source"] != "crsp":
+        raise ValueError("industry_validation currently supports data.source: crsp")
+    for key in ["min_train_annual_sic2_coverage", "min_test_rebalance_sic2_coverage"]:
+        value = float(validation.get(key, 0.0))
+        if value < 0.0 or value > 1.0:
+            raise ValueError(f"industry_validation.{key} must be between 0 and 1")
+
+
+def validate_strict_pit(config: dict[str, Any]) -> None:
+    strict = config.get("strict_pit", {})
+    if not strict:
+        return
+    if strict.get("mode") and strict["mode"] not in {"launch_pit_2023", "full_pit_dynamic"}:
+        raise ValueError("strict_pit.mode must be launch_pit_2023 or full_pit_dynamic")
+    if strict.get("enforcement", "fail") not in {"fail", "report_only"}:
+        raise ValueError("strict_pit.enforcement must be fail or report_only")
+    if not strict.get("enabled", False):
+        return
+
+    selection = config.get("universe", {}).get("selection", {})
+    if selection.get("method") == "approximate_market_cap_asof" and not strict.get("allow_current_market_cap_proxy", False):
+        raise ValueError("strict_pit.enabled forbids universe.selection.method=approximate_market_cap_asof")
+    if config["data"]["source"] == "nasdaq_public" and not strict.get("allow_non_pit_source", False):
+        raise ValueError("strict_pit.enabled requires a PIT-capable data.source; nasdaq_public is not strict PIT")
+    has_pit_industry = bool(strict.get("pit_industry_classification", False))
+    if not has_pit_industry and config.get("industry", {}).get("enabled", False):
+        raise ValueError("strict_pit.enabled forbids current-snapshot industry features without PIT industry classification")
+    if not has_pit_industry and config.get("industry_constraints", {}).get("enabled", False):
+        raise ValueError("strict_pit.enabled forbids current-snapshot industry constraints without PIT industry classification")
+    group_levels = set(config.get("market_features", {}).get("group_levels", []))
+    if not has_pit_industry and group_levels:
+        raise ValueError("strict_pit.enabled forbids market_features.group_levels without PIT industry classification")
+    if strict.get("strict_vintage_macro_only", True):
+        latest_series = [
+            str(spec.get("id"))
+            for spec in config.get("macro_features", {}).get("series", [])
+            if spec.get("realtime_mode", "period") == "latest"
+        ]
+        if latest_series:
+            raise ValueError(
+                "strict_pit.enabled requires macro_features realtime_mode=period; latest series: "
+                + ", ".join(latest_series)
+            )
 
 
 def validate_within_sector_review(config: dict[str, Any]) -> None:
@@ -396,14 +557,33 @@ def validate_training_control(config: dict[str, Any]) -> None:
         raise ValueError("training.seed must be non-negative")
     if "reuse_test_predictions" in training and not isinstance(training["reuse_test_predictions"], bool):
         raise ValueError("training.reuse_test_predictions must be true or false")
+    if "reuse_test_predictions_path" in training and not isinstance(training["reuse_test_predictions_path"], str):
+        raise ValueError("training.reuse_test_predictions_path must be a string path")
     if training.get("deterministic", False) and "seed" not in training:
         raise ValueError("training.deterministic requires training.seed")
+
+
+def validate_runtime_control(config: dict[str, Any]) -> None:
+    run_mode = str(config.get("run_mode", config.get("runtime", {}).get("run_mode", "full")))
+    valid_modes = {"full", "train_only", "backtest_only", "stress_only", "report_only"}
+    if run_mode not in valid_modes:
+        raise ValueError(f"run_mode must be one of: {', '.join(sorted(valid_modes))}")
+    runtime = config.get("runtime", {})
+    for key in ["qlib_dump_workers", "market_feature_workers", "stress_workers"]:
+        if key in runtime and int(runtime[key]) <= 0:
+            raise ValueError(f"runtime.{key} must be positive")
+    prepared = config.get("crsp", {}).get("prepared_dataset", {})
+    if prepared:
+        if prepared.get("copy_mode", "symlink") not in {"symlink", "copy"}:
+            raise ValueError("crsp.prepared_dataset.copy_mode must be symlink or copy")
 
 
 def validate_market_features(config: dict[str, Any]) -> None:
     market_features = config.get("market_features", {})
     if not market_features or not market_features.get("enabled", False):
         return
+    if "append_to_model" in market_features and not isinstance(market_features["append_to_model"], bool):
+        raise ValueError("market_features.append_to_model must be true or false")
     if market_features.get("source", "qlib_source_csv") != "qlib_source_csv":
         raise ValueError("market_features.source currently supports qlib_source_csv")
     group_levels = set(market_features.get("group_levels", ["sector", "industry"]))
@@ -431,6 +611,8 @@ def validate_macro_features(config: dict[str, Any]) -> None:
         raise ValueError("macro_features.history_buffer_days must be non-negative")
     if int(macro_features.get("output_type", 4)) not in {1, 2, 3, 4}:
         raise ValueError("macro_features.output_type must be one of 1, 2, 3, or 4")
+    if "append_to_model" in macro_features and not isinstance(macro_features["append_to_model"], bool):
+        raise ValueError("macro_features.append_to_model must be true or false")
     known_transforms = {
         "level",
         "change_20d",
@@ -464,6 +646,46 @@ def validate_macro_features(config: dict[str, Any]) -> None:
         invalid = set(spec.get("transforms", ["level"])) - known_transforms
         if invalid:
             raise ValueError(f"macro_features.derived {spec.get('name')} unsupported transform(s): {', '.join(sorted(invalid))}")
+
+
+def validate_macro_interactions(config: dict[str, Any]) -> None:
+    interactions = config.get("macro_interactions", {})
+    if not interactions or not interactions.get("enabled", False):
+        return
+    if not config.get("macro_features", {}).get("enabled", False):
+        raise ValueError("enabled macro_interactions require macro_features.enabled: true")
+    for spec in interactions.get("interactions", []):
+        if not spec.get("name"):
+            raise ValueError("macro_interactions.interactions entries require name")
+        if not spec.get("left"):
+            raise ValueError(f"macro_interactions {spec.get('name')} requires left")
+        right_count = sum(1 for key in ["right", "sector", "sectors"] if key in spec)
+        if right_count != 1:
+            raise ValueError(f"macro_interactions {spec.get('name')} requires exactly one of right, sector, or sectors")
+
+
+def validate_macro_regime_review(config: dict[str, Any]) -> None:
+    review = config.get("macro_regime_review", {})
+    if not review or not review.get("enabled", False):
+        return
+    if not config.get("backtest", {}).get("enabled", False):
+        raise ValueError("enabled macro_regime_review requires backtest.enabled: true")
+    if not review.get("variant"):
+        raise ValueError("enabled macro_regime_review requires variant")
+    experiments = review.get("experiments", [])
+    if not experiments:
+        raise ValueError("enabled macro_regime_review requires experiments")
+    names = [str(experiment.get("name", "")).strip() for experiment in experiments]
+    if any(not name for name in names):
+        raise ValueError("macro_regime_review experiments require non-empty name")
+    if len(set(names)) != len(names):
+        raise ValueError("macro_regime_review experiment names must be unique")
+    for experiment in experiments:
+        if not experiment.get("run_dir"):
+            raise ValueError(f"macro_regime_review experiment {experiment.get('name')} requires run_dir")
+    baseline = str(review.get("baseline_experiment", "baseline"))
+    if baseline not in names:
+        raise ValueError("macro_regime_review.baseline_experiment must be present in experiments")
 
 
 def date_value(value: Any) -> pd.Timestamp:
@@ -510,20 +732,53 @@ def build_paths(config: dict[str, Any]) -> dict[str, Path]:
         "liquidity_profile_csv": output_dir / "liquidity_profile.csv",
         "liquidity_exclusions_csv": output_dir / "liquidity_exclusions.csv",
         "fundamental_features": output_dir / "fundamental_features.parquet",
+        "fundamental_features_cleaned": output_dir / "fundamental_features_cleaned.parquet",
+        "fundamental_cleaning_summary": output_dir / "fundamental_cleaning_summary.yaml",
         "fundamental_failures": output_dir / "fundamental_failures.csv",
         "edgar_cik_map": output_dir / "edgar_cik_map.csv",
+        "edgar_coverage_summary": output_dir / "edgar_coverage_summary.yaml",
+        "edgar_coverage_by_year": output_dir / "edgar_coverage_by_year.csv",
+        "edgar_coverage_by_split": output_dir / "edgar_coverage_by_split.csv",
+        "edgar_coverage_by_sector": output_dir / "edgar_coverage_by_sector.csv",
+        "edgar_coverage_by_industry": output_dir / "edgar_coverage_by_industry.csv",
+        "edgar_coverage_by_history_bucket": output_dir / "edgar_coverage_by_history_bucket.csv",
+        "edgar_feature_missingness": output_dir / "edgar_feature_missingness.csv",
+        "edgar_failure_breakdown": output_dir / "edgar_failure_breakdown.csv",
+        "edgar_missingness_root_cause": output_dir / "edgar_missingness_root_cause.csv",
+        "edgar_field_availability_by_year": output_dir / "edgar_field_availability_by_year.csv",
+        "edgar_tag_resolution_report": output_dir / "edgar_tag_resolution_report.csv",
+        "edgar_feature_effectiveness_summary": output_dir / "edgar_feature_effectiveness_summary.yaml",
+        "edgar_feature_ic_summary": output_dir / "edgar_feature_ic_summary.csv",
+        "edgar_feature_ic_by_year": output_dir / "edgar_feature_ic_by_year.csv",
+        "edgar_feature_ic_by_sector": output_dir / "edgar_feature_ic_by_sector.csv",
+        "edgar_feature_quantile_spread": output_dir / "edgar_feature_quantile_spread.csv",
         "market_features": output_dir / "market_features.parquet",
         "market_feature_failures": output_dir / "market_feature_failures.csv",
         "macro_raw_observations": output_dir / "macro_raw_observations.parquet",
         "macro_asof_observations": output_dir / "macro_asof_observations.parquet",
         "macro_features": output_dir / "macro_features.parquet",
         "macro_failures": output_dir / "macro_failures.csv",
+        "macro_interaction_features": output_dir / "macro_interaction_features.parquet",
+        "macro_interaction_failures": output_dir / "macro_interaction_failures.csv",
+        "macro_regime_daily_metrics": output_dir / "macro_regime_daily_metrics.csv",
+        "macro_regime_summary": output_dir / "macro_regime_summary.csv",
+        "macro_regime_strategy_comparison": output_dir / "macro_regime_strategy_comparison.csv",
+        "macro_regime_sector_exposure": output_dir / "macro_regime_sector_exposure.csv",
+        "macro_regime_contribution_summary": output_dir / "macro_regime_contribution_summary.csv",
+        "macro_regime_review_summary": output_dir / "macro_regime_review_summary.yaml",
         "industry_features": output_dir / "industry_features.parquet",
         "industry_failures": output_dir / "industry_failures.csv",
+        "edgar_relative_feature_coverage": output_dir / "edgar_relative_feature_coverage.csv",
+        "industry_master": output_dir / "industry_master.parquet",
+        "industry_mapping_failures": output_dir / "industry_mapping_failures.csv",
+        "industry_mapping_coverage": output_dir / "industry_mapping_coverage.csv",
+        "industry_mapping_summary": output_dir / "industry_mapping_summary.yaml",
         "predictions_csv": output_dir / "predictions.csv",
         "bucketed_predictions_csv": output_dir / "bucketed_predictions.csv",
         "selected_top10_csv": output_dir / "selected_top10.csv",
         "test_predictions_csv": output_dir / "test_predictions.csv",
+        "training_summary": output_dir / "training_summary.yaml",
+        "training_eval_history": output_dir / "training_eval_history.csv",
         "backtest_nav_csv": output_dir / "backtest_nav.csv",
         "backtest_positions_csv": output_dir / "backtest_positions.csv",
         "backtest_summary": output_dir / "backtest_summary.yaml",
@@ -552,6 +807,23 @@ def build_paths(config: dict[str, Any]) -> dict[str, Path]:
         "short_history_feature_differences": output_dir / "short_history_feature_differences.csv",
         "short_history_sector_breakdown": output_dir / "short_history_sector_breakdown.csv",
         "short_history_review_summary": output_dir / "short_history_review_summary.yaml",
+        "pit_universe_validation": output_dir / "pit_universe_validation.csv",
+        "security_master_validation": output_dir / "security_master_validation.csv",
+        "market_cap_validation": output_dir / "market_cap_validation.csv",
+        "data_quality_summary": output_dir / "data_quality_summary.yaml",
+        "crsp_industry_validation": output_dir / "crsp_industry_validation.csv",
+        "crsp_industry_coverage_by_month": output_dir / "crsp_industry_coverage_by_month.csv",
+        "crsp_industry_coverage_by_year": output_dir / "crsp_industry_coverage_by_year.csv",
+        "crsp_industry_coverage_by_rebalance": output_dir / "crsp_industry_coverage_by_rebalance.csv",
+        "crsp_industry_validation_summary": output_dir / "crsp_industry_validation_summary.yaml",
+        "provider_capability_summary": output_dir / "provider_capability_summary.yaml",
+        "provider_table_columns": output_dir / "provider_table_columns.csv",
+        "provider_capability_report": output_dir / "provider_capability_report.md",
+        "backtest_stress_dir": output_dir / "backtest_stress",
+        "backtest_stress_matrix": output_dir / "backtest_stress_matrix.csv",
+        "backtest_stress_summary": output_dir / "backtest_stress_summary.yaml",
+        "runtime_profile_csv": output_dir / "runtime_profile.csv",
+        "runtime_profile_summary": output_dir / "runtime_profile.yaml",
         "report_md": output_dir / "report.md",
         "resolved_config": output_dir / "resolved_config.yaml",
     }
@@ -561,6 +833,16 @@ def build_paths(config: dict[str, Any]) -> dict[str, Path]:
     macro_features = config.get("macro_features", {})
     macro_cache_dir = macro_features.get("cache_dir") if macro_features else None
     paths["macro_cache_dir"] = resolve_path(macro_cache_dir) if macro_cache_dir else output_dir / "fred_alfred_cache"
+    sharadar_config = config.get("sharadar", {})
+    sharadar_cache_dir = sharadar_config.get("cache_dir") if sharadar_config else None
+    paths["sharadar_cache_dir"] = resolve_path(sharadar_cache_dir) if sharadar_cache_dir else output_dir / "sharadar_cache"
+    databento_config = config.get("databento", {})
+    databento_cache_dir = databento_config.get("cache_dir") if databento_config else None
+    paths["databento_cache_dir"] = resolve_path(databento_cache_dir) if databento_cache_dir else output_dir / "databento_cache"
+    crsp_config = config.get("crsp", {})
+    crsp_warehouse_dir = crsp_config.get("warehouse_dir") if crsp_config else None
+    paths["crsp_warehouse_dir"] = resolve_path(crsp_warehouse_dir) if crsp_warehouse_dir else output_dir / "crsp_warehouse"
+    paths["crsp_inventory_report"] = output_dir / "crsp_inventory_report.md"
     return paths
 
 
@@ -578,6 +860,85 @@ def write_resolved_config(config: dict[str, Any], paths: dict[str, Path]) -> Non
     )
 
 
+def prepare_or_reuse_data(config: dict[str, Any], paths: dict[str, Path]) -> Any:
+    reuse_run = config["data"].get("reuse_prepared_run")
+    if reuse_run:
+        return reuse_prepared_run(reuse_run, paths)
+    return create_data_source(config, paths).prepare()
+
+
+def reuse_prepared_run(reuse_run: str | Path, paths: dict[str, Path]) -> Any:
+    source_run = resolve_path(reuse_run)
+    if not source_run.exists():
+        raise FileNotFoundError(f"data.reuse_prepared_run does not exist: {source_run}")
+    required = [source_run / "universe.csv", source_run / "download_failures.csv", source_run / "qlib_source_csv"]
+    missing = [str(path) for path in required if not path.exists()]
+    if missing:
+        raise FileNotFoundError(f"data.reuse_prepared_run missing required artifact(s): {', '.join(missing)}")
+
+    copied_files = [
+        "universe.csv",
+        "universe_candidates.csv",
+        "universe_selection.csv",
+        "universe_exclusions.csv",
+        "security_master.csv",
+        "security_master_exclusions.csv",
+        "download_failures.csv",
+        "membership.csv",
+    ]
+    for file_name in copied_files:
+        source = source_run / file_name
+        target_key = {
+            "universe.csv": "universe_csv",
+            "universe_candidates.csv": "universe_candidates_csv",
+            "universe_selection.csv": "universe_selection_csv",
+            "universe_exclusions.csv": "universe_exclusions_csv",
+            "security_master.csv": "security_master_csv",
+            "security_master_exclusions.csv": "security_master_exclusions_csv",
+            "download_failures.csv": "failures_csv",
+            "membership.csv": "membership_csv",
+        }[file_name]
+        if source.exists():
+            shutil.copy2(source, paths[target_key])
+
+    copy_directory(source_run / "qlib_source_csv", paths["source_dir"])
+    qlib_source = source_run / "qlib_data"
+    qlib_data_ready = qlib_source.exists()
+    if qlib_data_ready:
+        copy_directory(qlib_source, paths["qlib_dir"])
+
+    universe = pd.read_csv(paths["universe_csv"])
+    failures = pd.read_csv(paths["failures_csv"])
+    return PreparedData(
+        universe=universe,
+        failures=failures,
+        metadata={
+            "source": "reused_prepared_run",
+            "source_run": str(source_run),
+            "qlib_data_ready": qlib_data_ready,
+        },
+    )
+
+
+def copy_directory(source: Path, target: Path) -> None:
+    if target.is_symlink() or target.is_file():
+        target.unlink()
+    elif target.exists():
+        shutil.rmtree(target)
+    shutil.copytree(source, target)
+
+
+def stage_timer(paths: dict[str, Path], name: str, **metadata: Any) -> ContextManager[None]:
+    profiler = paths.get("runtime_profiler")
+    if isinstance(profiler, RuntimeProfiler):
+        return profiler.stage(name, **metadata)
+    return nullcontext()
+
+
+def runtime_mode(config: dict[str, Any]) -> str:
+    return str(config.get("run_mode", config.get("runtime", {}).get("run_mode", "full")))
+
+
 def set_training_seed(config: dict[str, Any]) -> int | None:
     seed = config.get("training", {}).get("seed")
     if seed is None:
@@ -589,7 +950,15 @@ def set_training_seed(config: dict[str, Any]) -> int | None:
 
 
 def use_cached_test_predictions(config: dict[str, Any]) -> bool:
-    return bool(config.get("training", {}).get("reuse_test_predictions", False))
+    training = config.get("training", {})
+    return bool(training.get("reuse_test_predictions", False) or training.get("reuse_test_predictions_path"))
+
+
+def cached_test_predictions_path(config: dict[str, Any], paths: dict[str, Path]) -> Path:
+    configured = config.get("training", {}).get("reuse_test_predictions_path")
+    if configured:
+        return resolve_path(Path(configured))
+    return paths["test_predictions_csv"]
 
 
 def read_test_predictions(path: Path) -> pd.DataFrame:
@@ -617,24 +986,55 @@ def prediction_frame_to_series(frame: pd.DataFrame) -> pd.Series:
 
 
 def dump_qlib_bin(config: dict[str, Any], paths: dict[str, Path]) -> None:
-    qlib_dir = paths["qlib_dir"]
-    if qlib_dir.exists():
-        shutil.rmtree(qlib_dir)
+    target_qlib_dir = paths.get("prepared_qlib_dir", paths["qlib_dir"])
+    if qlib_data_complete(target_qlib_dir):
+        materialize_runtime_directory(target_qlib_dir, paths["qlib_dir"], config)
+        return
+
+    qlib_dir = target_qlib_dir
+    remove_runtime_path(qlib_dir)
     sys.path.insert(0, str(WORKSPACE))
     from scripts.dump_bin import DumpDataAll
 
     print("Dumping CSV files into Qlib bin format...")
+    dump_workers = int(config.get("runtime", {}).get("qlib_dump_workers", config.get("qlib", {}).get("dump_workers", 8)))
     dumper = DumpDataAll(
         data_path=str(paths["source_dir"]),
         qlib_dir=str(qlib_dir),
         freq=config["data"]["freq"],
-        max_workers=8,
+        max_workers=dump_workers,
         date_field_name="date",
         symbol_field_name="symbol",
         exclude_fields="date,symbol",
         file_suffix=".csv",
     )
     dumper.dump()
+    if target_qlib_dir != paths["qlib_dir"]:
+        materialize_runtime_directory(target_qlib_dir, paths["qlib_dir"], config)
+
+
+def materialize_runtime_directory(source: Path, target: Path, config: dict[str, Any]) -> None:
+    remove_runtime_path(target)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    copy_mode = str(config.get("crsp", {}).get("prepared_dataset", {}).get("copy_mode", "symlink"))
+    if copy_mode == "copy":
+        shutil.copytree(source, target)
+        return
+    try:
+        target.symlink_to(source.resolve(), target_is_directory=True)
+    except OSError:
+        shutil.copytree(source, target)
+
+
+def remove_runtime_path(path: Path) -> None:
+    if path.is_symlink() or path.is_file():
+        path.unlink()
+    elif path.exists():
+        shutil.rmtree(path)
+
+
+def qlib_data_complete(qlib_dir: Path) -> bool:
+    return (qlib_dir / "calendars" / "day.txt").exists() and (qlib_dir / "features").exists()
 
 
 def choose_segments(config: dict[str, Any], paths: dict[str, Path]) -> dict[str, tuple[str, str]]:
@@ -713,81 +1113,132 @@ def train_and_predict(
     from qlib.data.dataset.handler import DataHandlerLP
     from qlib.data.dataset.loader import StaticDataLoader
 
-    qlib.init(
-        provider_uri=str(paths["qlib_dir"]),
-        region=REG_US,
-        expression_cache=None,
-        dataset_cache=None,
-    )
-    segments = choose_segments(config, paths)
+    mode = runtime_mode(config)
+    with stage_timer(paths, "qlib_init"):
+        qlib.init(
+            provider_uri=str(paths["qlib_dir"]),
+            region=REG_US,
+            expression_cache=None,
+            dataset_cache=None,
+        )
+    with stage_timer(paths, "choose_segments"):
+        segments = choose_segments(config, paths)
     print(f"Segments: {segments}")
 
-    handler = Alpha158(
-        instruments=config["features"]["instruments"],
-        start_time=segments["all"][0],
-        end_time=segments["all"][1],
-        fit_start_time=segments["fit"][0],
-        fit_end_time=segments["fit"][1],
-        freq=config["data"]["freq"],
-        label=([config["label"]["expression"]], [config["label"]["name"]]),
-    )
+    handler = None
+    dataset = None
     fundamental_result = None
+    edgar_coverage_result = None
+    edgar_effectiveness_result = None
     market_feature_result = None
     macro_result = None
+    macro_interaction_result = None
     industry_result = None
     extra_feature_frames: list[pd.DataFrame] = []
-    if config.get("market_features", {}).get("enabled", False):
+    skip_model_stage = mode in {"backtest_only", "stress_only", "report_only"}
+    if not skip_model_stage:
+        with stage_timer(paths, "alpha158_handler_init"):
+            handler = Alpha158(
+                instruments=config["features"]["instruments"],
+                start_time=segments["all"][0],
+                end_time=segments["all"][1],
+                fit_start_time=segments["fit"][0],
+                fit_end_time=segments["fit"][1],
+                freq=config["data"]["freq"],
+                label=([config["label"]["expression"]], [config["label"]["name"]]),
+            )
+    if not skip_model_stage and config.get("market_features", {}).get("enabled", False):
         print("Building market-derived sector-relative features...")
-        market_feature_result = build_market_feature_frame(universe, config, paths)
-        extra_feature_frames.append(market_feature_result.features)
-    if config.get("fundamentals", {}).get("enabled", False):
+        with stage_timer(paths, "market_features"):
+            market_feature_result = build_market_feature_frame(universe, config, paths)
+        if config.get("market_features", {}).get("append_to_model", True):
+            extra_feature_frames.append(market_feature_result.features)
+    if not skip_model_stage and config.get("fundamentals", {}).get("enabled", False):
         print("Building SEC EDGAR point-in-time fundamental features...")
-        fundamental_result = build_fundamental_features(universe, config, paths)
+        with stage_timer(paths, "fundamentals"):
+            fundamental_result = build_fundamental_features(universe, config, paths)
         extra_feature_frames.append(fundamental_result.features)
-    if config.get("macro_features", {}).get("enabled", False):
+        if config.get("edgar_coverage_review", {}).get("enabled", False):
+            print("Reviewing SEC EDGAR coverage and missingness...")
+            with stage_timer(paths, "edgar_coverage_review"):
+                edgar_coverage_result = build_edgar_coverage_review(
+                    universe,
+                    config,
+                    paths,
+                    features=fundamental_result.features,
+                    failures=fundamental_result.failures,
+                    cik_map=fundamental_result.cik_map,
+                )
+    if not skip_model_stage and config.get("macro_features", {}).get("enabled", False):
         print("Building FRED/ALFRED point-in-time macro features...")
-        macro_result = build_macro_feature_frame(universe, config, paths)
-        extra_feature_frames.append(macro_result.features)
-    if config.get("industry", {}).get("enabled", False):
+        with stage_timer(paths, "macro_features"):
+            macro_result = build_macro_feature_frame(universe, config, paths)
+        if config.get("macro_features", {}).get("append_to_model", True):
+            extra_feature_frames.append(macro_result.features)
+    if not skip_model_stage and config.get("macro_interactions", {}).get("enabled", False):
+        print("Building macro interaction features...")
+        with stage_timer(paths, "macro_interactions"):
+            macro_interaction_result = build_macro_interaction_frame(
+                universe,
+                config,
+                paths,
+                macro_features=None if macro_result is None else macro_result.features,
+                market_features=None if market_feature_result is None else market_feature_result.features,
+                fundamental_features=None if fundamental_result is None else fundamental_result.features,
+            )
+        extra_feature_frames.append(macro_interaction_result.features)
+    if not skip_model_stage and config.get("industry", {}).get("enabled", False):
         print("Building industry-relative fundamental features...")
         if fundamental_result is None:
             raise RuntimeError("industry features require fundamental features to be built first")
-        industry_result = build_industry_feature_frame(universe, config, paths, fundamental_result.features)
+        with stage_timer(paths, "industry_features"):
+            industry_result = build_industry_feature_frame(universe, config, paths, fundamental_result.features)
         extra_feature_frames.append(industry_result.features)
-    if extra_feature_frames:
-        raw = handler.fetch(
-            selector=slice(segments["all"][0], segments["all"][1]),
-            col_set=["feature", "label"],
-            data_key=DataHandlerLP.DK_R,
-        )
-        combined = combine_alpha_and_feature_frames_raw(raw, extra_feature_frames)
-        handler = DataHandlerLP(
-            data_loader=StaticDataLoader(combined),
-            learn_processors=[
-                {"class": "DropnaLabel"},
-                {"class": "CSZScoreNorm", "kwargs": {"fields_group": "label"}},
-            ],
-        )
+    if not skip_model_stage:
+        if extra_feature_frames:
+            with stage_timer(paths, "combine_feature_matrix"):
+                if handler is None:
+                    raise RuntimeError("Alpha158 handler was not initialized")
+                raw = handler.fetch(
+                    selector=slice(segments["all"][0], segments["all"][1]),
+                    col_set=["feature", "label"],
+                    data_key=DataHandlerLP.DK_R,
+                )
+                combined = combine_alpha_and_feature_frames_raw(raw, extra_feature_frames)
+                handler = DataHandlerLP(
+                    data_loader=StaticDataLoader(combined),
+                    learn_processors=[
+                        {"class": "DropnaLabel"},
+                        {"class": "CSZScoreNorm", "kwargs": {"fields_group": "label"}},
+                    ],
+                )
 
-    dataset = DatasetH(
-        handler=handler,
-        segments={
-            "train": segments["train"],
-            "valid": segments["valid"],
-            "test": segments["test"],
-        },
-    )
+        dataset = DatasetH(
+            handler=handler,
+            segments={
+                "train": segments["train"],
+                "valid": segments["valid"],
+                "test": segments["test"],
+            },
+        )
     training_seed = set_training_seed(config)
-    if use_cached_test_predictions(config):
-        print(f"Reusing cached test predictions from {paths['test_predictions_csv']}...")
-        pred_frame = read_test_predictions(paths["test_predictions_csv"])
+    if use_cached_test_predictions(config) or skip_model_stage:
+        prediction_path = cached_test_predictions_path(config, paths)
+        print(f"Reusing cached test predictions from {prediction_path}...")
+        pred_frame = read_test_predictions(prediction_path)
+        if prediction_path.resolve() != paths["test_predictions_csv"].resolve():
+            pred_frame.to_csv(paths["test_predictions_csv"], index=False)
         pred = prediction_frame_to_series(pred_frame)
         prediction_source = "cached_test_predictions"
     else:
         model = LGBModel(**config["model"]["kwargs"])
         print("Training Qlib LGBModel on Alpha158 features...")
-        model.fit(dataset)
-        pred = model.predict(dataset, segment="test")
+        evals_result: dict[str, dict[str, list[float]]] = {}
+        with stage_timer(paths, "model_fit"):
+            model.fit(dataset, evals_result=evals_result)
+        write_training_outputs(paths, model, evals_result)
+        with stage_timer(paths, "model_predict"):
+            pred = model.predict(dataset, segment="test")
         pred.name = "score"
         pred_frame = pred.reset_index()
         pred_frame.columns = ["datetime", "instrument", "score"]
@@ -803,25 +1254,68 @@ def train_and_predict(
     merged.to_csv(paths["predictions_csv"], index=False)
     top_predictions, bucket_meta = apply_bucket_ranking(merged, config, paths)
 
-    label = dataset.prepare("test", col_set="label", data_key=DataHandlerLP.DK_L)
-    label_series = label.iloc[:, 0] if isinstance(label, pd.DataFrame) else label
-    aligned = pd.concat([pred.rename("pred"), label_series.rename("label")], axis=1).dropna()
-    if aligned.empty:
+    if dataset is None:
         ic_mean = math.nan
         rank_ic_mean = math.nan
         ic_count = 0
+        label_series = pd.Series(dtype=float)
     else:
-        ic = aligned.groupby(level="datetime").apply(lambda x: x["pred"].corr(x["label"]))
-        rank_ic = aligned.groupby(level="datetime").apply(lambda x: x["pred"].corr(x["label"], method="spearman"))
-        ic_mean = float(ic.mean())
-        rank_ic_mean = float(rank_ic.mean())
-        ic_count = int(ic.notna().sum())
+        with stage_timer(paths, "ic_calculation"):
+            label = dataset.prepare("test", col_set="label", data_key=DataHandlerLP.DK_L)
+            label_series = label.iloc[:, 0] if isinstance(label, pd.DataFrame) else label
+            aligned = pd.concat([pred.rename("pred"), label_series.rename("label")], axis=1).dropna()
+            if aligned.empty:
+                ic_mean = math.nan
+                rank_ic_mean = math.nan
+                ic_count = 0
+            else:
+                ic = aligned.groupby(level="datetime").apply(lambda x: x["pred"].corr(x["label"]))
+                rank_ic = aligned.groupby(level="datetime").apply(lambda x: x["pred"].corr(x["label"], method="spearman"))
+                ic_mean = float(ic.mean())
+                rank_ic_mean = float(rank_ic.mean())
+                ic_count = int(ic.notna().sum())
 
-    backtest_result = run_topk_backtest(pred_frame, universe, config, paths)
-    strategy_comparison = run_strategy_comparison(pred_frame, universe, config, paths)
-    within_sector_result = run_within_sector_review(pred_frame, universe, config, paths)
-    sector_error_result = run_sector_error_review(pred_frame, universe, config, paths)
-    short_history_result = run_short_history_review(pred_frame, universe, config, paths)
+    if (
+        not skip_model_stage
+        and fundamental_result is not None
+        and config.get("edgar_effectiveness_review", {}).get("enabled", False)
+    ):
+        print("Reviewing SEC EDGAR field effectiveness...")
+        with stage_timer(paths, "edgar_effectiveness_review"):
+            edgar_effectiveness_result = build_edgar_effectiveness_review(
+                fundamental_result.features,
+                label_series,
+                config,
+                paths,
+            )
+
+    empty_review = type("EmptyReview", (), {"summary": {"enabled": False}, "yaml_summary": {"enabled": False}})()
+    backtest_result = type("EmptyBacktest", (), {"summary": {"enabled": False}})()
+    strategy_comparison = {"enabled": False, "rows": []}
+    backtest_stress = {"enabled": False, "rows": []}
+    within_sector_result = empty_review
+    sector_error_result = empty_review
+    short_history_result = empty_review
+    macro_regime_result = empty_review
+
+    if mode in {"full", "backtest_only"}:
+        with stage_timer(paths, "backtest_main"):
+            backtest_result = run_topk_backtest(pred_frame, universe, config, paths)
+        with stage_timer(paths, "strategy_comparison"):
+            strategy_comparison = run_strategy_comparison(pred_frame, universe, config, paths)
+        with stage_timer(paths, "backtest_stress"):
+            backtest_stress = run_backtest_stress_tests(pred_frame, universe, config, paths)
+        with stage_timer(paths, "within_sector_review"):
+            within_sector_result = run_within_sector_review(pred_frame, universe, config, paths)
+        with stage_timer(paths, "sector_error_review"):
+            sector_error_result = run_sector_error_review(pred_frame, universe, config, paths)
+        with stage_timer(paths, "short_history_review"):
+            short_history_result = run_short_history_review(pred_frame, universe, config, paths)
+        with stage_timer(paths, "macro_regime_review"):
+            macro_regime_result = run_macro_regime_review(config, paths)
+    elif mode == "stress_only":
+        with stage_timer(paths, "backtest_stress"):
+            backtest_stress = run_backtest_stress_tests(pred_frame, universe, config, paths)
 
     meta = {
         "segments": segments,
@@ -831,21 +1325,36 @@ def train_and_predict(
         "rank_ic_mean": rank_ic_mean,
         "ic_count": ic_count,
         "prediction_source": prediction_source,
+        "run_mode": mode,
         "training_seed": training_seed,
         "deterministic_training": bool(config.get("training", {}).get("deterministic", False)),
         "reuse_test_predictions": bool(use_cached_test_predictions(config)),
+        "reuse_test_predictions_path": str(cached_test_predictions_path(config, paths)) if use_cached_test_predictions(config) else None,
         "fundamentals_enabled": bool(config.get("fundamentals", {}).get("enabled", False)),
         "fundamental_feature_count": 0 if fundamental_result is None else int(fundamental_result.features.shape[1]),
+        "fundamental_feature_row_count": 0 if fundamental_result is None else int(fundamental_result.features.shape[0]),
         "fundamental_failure_count": 0 if fundamental_result is None else int(len(fundamental_result.failures)),
         "cik_mapped_count": 0 if fundamental_result is None else int(len(fundamental_result.cik_map)),
+        "edgar_coverage_review": {} if edgar_coverage_result is None else edgar_coverage_result.summary,
+        "edgar_effectiveness_review": {} if edgar_effectiveness_result is None else edgar_effectiveness_result.summary,
         "market_features_enabled": bool(config.get("market_features", {}).get("enabled", False)),
+        "market_append_to_model": bool(config.get("market_features", {}).get("append_to_model", True)),
         "market_feature_count": 0 if market_feature_result is None else int(market_feature_result.features.shape[1]),
         "market_feature_failure_count": 0 if market_feature_result is None else int(len(market_feature_result.failures)),
         "market_feature_coverage": {} if market_feature_result is None else market_feature_result.coverage,
         "macro_features_enabled": bool(config.get("macro_features", {}).get("enabled", False)),
+        "macro_append_to_model": bool(config.get("macro_features", {}).get("append_to_model", True)),
         "macro_feature_count": 0 if macro_result is None else int(macro_result.features.shape[1]),
         "macro_failure_count": 0 if macro_result is None else int(len(macro_result.failures)),
         "macro_feature_coverage": {} if macro_result is None else macro_result.coverage,
+        "macro_interactions_enabled": bool(config.get("macro_interactions", {}).get("enabled", False)),
+        "macro_interaction_feature_count": 0
+        if macro_interaction_result is None
+        else int(macro_interaction_result.features.shape[1]),
+        "macro_interaction_failure_count": 0
+        if macro_interaction_result is None
+        else int(len(macro_interaction_result.failures)),
+        "macro_interaction_coverage": {} if macro_interaction_result is None else macro_interaction_result.coverage,
         "industry_enabled": bool(config.get("industry", {}).get("enabled", False)),
         "industry_feature_count": 0 if industry_result is None else int(industry_result.features.shape[1]),
         "industry_failure_count": 0 if industry_result is None else int(len(industry_result.failures)),
@@ -869,11 +1378,46 @@ def train_and_predict(
         "backtest_enabled": bool(backtest_result.summary.get("enabled", False)),
         "backtest_summary": backtest_result.summary,
         "strategy_comparison": strategy_comparison,
+        "backtest_stress": backtest_stress,
         "within_sector_review": within_sector_result.summary,
         "sector_error_review": sector_error_result.yaml_summary,
         "short_history_review": short_history_result.yaml_summary,
+        "macro_regime_review": macro_regime_result.yaml_summary,
     }
     return top_predictions, meta
+
+
+def write_training_outputs(paths: dict[str, Path], model: Any, evals_result: dict[str, dict[str, list[float]]]) -> None:
+    train_l2 = list(evals_result.get("train", {}).get("l2", []))
+    valid_l2 = list(evals_result.get("valid", {}).get("l2", []))
+    booster = getattr(model, "model", None)
+    best_iteration = int(getattr(booster, "best_iteration", 0) or len(valid_l2) or len(train_l2) or 0)
+    best_valid_l2 = valid_l2[best_iteration - 1] if best_iteration and len(valid_l2) >= best_iteration else math.nan
+    final_valid_l2 = valid_l2[-1] if valid_l2 else math.nan
+    best_train_l2 = train_l2[best_iteration - 1] if best_iteration and len(train_l2) >= best_iteration else math.nan
+    final_train_l2 = train_l2[-1] if train_l2 else math.nan
+    summary = {
+        "best_iteration": best_iteration,
+        "best_train_l2": float(best_train_l2) if not math.isnan(best_train_l2) else None,
+        "best_valid_l2": float(best_valid_l2) if not math.isnan(best_valid_l2) else None,
+        "final_train_l2": float(final_train_l2) if not math.isnan(final_train_l2) else None,
+        "final_valid_l2": float(final_valid_l2) if not math.isnan(final_valid_l2) else None,
+        "round_count": int(max(len(train_l2), len(valid_l2))),
+    }
+    paths["training_summary"].write_text(
+        yaml.safe_dump(summary, allow_unicode=True, sort_keys=False),
+        encoding="utf-8",
+    )
+    rows = []
+    for index in range(summary["round_count"]):
+        rows.append(
+            {
+                "iteration": index + 1,
+                "train_l2": train_l2[index] if index < len(train_l2) else math.nan,
+                "valid_l2": valid_l2[index] if index < len(valid_l2) else math.nan,
+            }
+        )
+    pd.DataFrame(rows).to_csv(paths["training_eval_history"], index=False)
 
 
 def run_strategy_comparison(
@@ -888,11 +1432,21 @@ def run_strategy_comparison(
 
     rows = []
     variant_summaries = []
+    market_data_by_price: dict[str, dict[str, pd.DataFrame]] = {}
     paths["strategy_comparison_dir"].mkdir(parents=True, exist_ok=True)
     for variant in comparison.get("variants", []):
         variant_config = build_strategy_variant_config(config, variant)
         variant_paths = build_strategy_variant_paths(paths, variant)
-        result = run_topk_backtest(predictions, universe, variant_config, variant_paths)
+        backtest_price = str(variant_config.get("backtest", {}).get("price", "close"))
+        if backtest_price not in market_data_by_price:
+            market_data_by_price[backtest_price] = load_market_data(paths["source_dir"], backtest_price)
+        result = run_topk_backtest(
+            predictions,
+            universe,
+            variant_config,
+            variant_paths,
+            market_data=market_data_by_price[backtest_price],
+        )
         row = summarize_strategy_variant(variant, result, variant_paths)
         rows.append(row)
         variant_summaries.append(
@@ -1174,6 +1728,8 @@ def format_yaml_block(value: Any) -> list[str]:
 
 
 def universe_future_information_warning(config: dict[str, Any]) -> list[str]:
+    if config["data"].get("source") != "nasdaq_public":
+        return []
     selection = config["universe"].get("selection", {})
     if selection.get("method") == "approximate_market_cap_asof":
         return [
@@ -1439,6 +1995,176 @@ def short_history_review_report_lines(summary: dict[str, Any]) -> list[str]:
     return lines
 
 
+def macro_interaction_report_lines(config: dict[str, Any], meta: dict[str, Any]) -> list[str]:
+    if not config.get("macro_interactions", {}).get("enabled", False):
+        return ["- 未启用。"]
+    return [
+        *format_yaml_block(config.get("macro_interactions", {})),
+        f"- 交互特征数量：{meta.get('macro_interaction_feature_count', 0)}",
+        f"- 交互特征失败或跳过数量：{meta.get('macro_interaction_failure_count', 0)}",
+        "- 交互特征覆盖：",
+        *format_yaml_block(meta.get("macro_interaction_coverage", {})),
+        "",
+        "解释：raw macro 是所有股票同一天相同的市场状态；交互特征把它乘到行业、估值、杠杆、动量、波动率等股票差异上，让模型学习“在某种宏观环境里，哪类股票更有优势”。",
+    ]
+
+
+def macro_regime_review_report_lines(summary: dict[str, Any]) -> list[str]:
+    if not summary.get("enabled", False):
+        return ["- 未启用。"]
+    if summary.get("error"):
+        return [f"- 未生成：{summary.get('error')}"]
+    lines = [
+        "- Regime 复盘已启用：不重训模型，只读取 baseline / direct macro / macro interactions 的既有回测结果。",
+        "- 阈值口径：VIX、10Y 利率、信用利差的高低阈值只用测试期前历史分位数估计，避免用测试期未来分布定阈值。",
+        f"- 摘要过滤：best/worst 列表只纳入至少 `{summary.get('min_periods_for_insights', 5)}` 个调仓期的 regime；低样本对照行数：`{summary.get('low_sample_comparison_rows', 0)}`。",
+        "- 使用阈值：",
+        *format_yaml_block(summary.get("thresholds", {})),
+    ]
+    missing = summary.get("missing", [])
+    if missing:
+        lines.extend(["- 缺失实验输出：", *format_yaml_block(missing)])
+    insights = summary.get("insights", {})
+    if insights:
+        lines.extend(
+            [
+                "- 相对 baseline 表现最好的 regime：",
+                *format_yaml_block(insights.get("best_regimes_vs_baseline", [])[:6]),
+                "- 相对 baseline 表现最弱的 regime：",
+                *format_yaml_block(insights.get("worst_regimes_vs_baseline", [])[:6]),
+                "- Beta 降低最明显的 regime：",
+                *format_yaml_block(insights.get("largest_beta_reductions_vs_baseline", [])[:6]),
+            ]
+        )
+    lines.append("解读口径：如果某个宏观版本在高 VIX、利率上行、信用压力等 regime 下回撤更小但收益较低，它可能是风险增强特征；如果 alpha 和 Rank IC 也改善，才更像选股增强。")
+    return lines
+
+
+def data_quality_report_lines(summary: dict[str, Any]) -> list[str]:
+    if not summary:
+        return ["- 未生成数据质量验收。"]
+    status = summary.get("strict_result_status", "not_strict_pit")
+    lines = [
+        f"- 严格 PIT 状态：`{status}`",
+        f"- 是否可作为 strict headline：`{summary.get('strict_headline_allowed', False)}`",
+        f"- 是否只能作为学习观察：`{summary.get('learning_research_only', True)}`",
+        f"- 幸存者偏差风险：`{summary.get('survivorship_risk', 'unknown')}`",
+        f"- 当前市值反推风险：`{summary.get('market_cap_proxy_risk', 'unknown')}`",
+        f"- PIT 行业分类状态：`{summary.get('pit_industry_status', 'unknown')}`",
+        "- 阻断 strict headline 的检查：",
+        *format_yaml_block(summary.get("blocking_check_ids", [])),
+        "- 检查计数：",
+        *format_yaml_block(summary.get("check_counts", [])),
+        "",
+        "结论口径：严格结果优先于高收益结果；未通过 PIT 数据验收的实验，只能作为学习观察，不作为策略结论。",
+    ]
+    return lines
+
+
+def crsp_industry_validation_report_lines(summary: dict[str, Any]) -> list[str]:
+    if not summary.get("enabled", False):
+        return ["- 未启用。"]
+    return [
+        f"- 行业口径来源：`{summary.get('source', 'crsp_sic_naics')}`",
+        f"- Sector 定义：{summary.get('sector_definition', 'SIC 2-digit')}",
+        f"- Industry 定义：{summary.get('industry_definition', 'SIC 4-digit')}",
+        f"- Membership 样本数：{summary.get('membership_rows', 0)}",
+        f"- 训练期年度最低 SIC2 覆盖率：{fmt_pct(summary.get('train_min_annual_sic2_coverage'))}",
+        f"- 测试期调仓日最低 SIC2 覆盖率：{fmt_pct(summary.get('test_min_rebalance_sic2_coverage'))}",
+        f"- 行业约束是否允许进入主策略：`{summary.get('industry_constraints_allowed', False)}`",
+        f"- 行业相对特征是否允许进入主策略：`{summary.get('industry_features_allowed', False)}`",
+        f"- 结论：`{summary.get('conclusion', 'unknown')}`",
+        "",
+        "行业字段先作为 PIT 覆盖率验收对象。只有覆盖率通过阈值后，才允许把行业约束和行业内相对特征放回主策略。",
+    ]
+
+
+def industry_mapping_report_lines(summary: dict[str, Any]) -> list[str]:
+    if not summary.get("enabled", False):
+        return ["- 未启用。"]
+    return [
+        f"- 映射主来源：`{summary.get('primary_source', 'crsp_monthly_row')}`",
+        f"- fallback 来源：`{summary.get('fallbacks', [])}`",
+        f"- 行业映射总行数：{summary.get('rows', 0)}",
+        f"- CRSP PIT 行数：{summary.get('crsp_pit_rows', 0)}",
+        f"- EDGAR fallback 行数：{summary.get('edgar_fallback_rows', 0)}",
+        f"- UNKNOWN 行数：{summary.get('unknown_rows', 0)}",
+        f"- 非 PIT 或未验证 fallback 行数：{summary.get('non_pit_or_unverified_rows', 0)}",
+        f"- 训练期年度最低严格 sector 覆盖率：{fmt_pct(summary.get('train_min_annual_strict_sector_coverage'))}",
+        f"- 测试期最低严格 sector 覆盖率：{fmt_pct(summary.get('test_min_strict_sector_coverage'))}",
+        f"- 结论：`{summary.get('conclusion', 'unknown')}`",
+    ]
+
+
+def runtime_profile_report_lines(paths: dict[str, Path]) -> list[str]:
+    profiler = paths.get("runtime_profiler")
+    if not isinstance(profiler, RuntimeProfiler) or not profiler.rows:
+        return ["- 本次尚未记录阶段耗时。"]
+    frame = pd.DataFrame(profiler.rows)
+    if frame.empty or "seconds" not in frame:
+        return ["- 本次尚未记录阶段耗时。"]
+    slowest = frame.sort_values("seconds", ascending=False).head(8)
+    lines = [
+        f"- 已记录阶段数：{len(frame)}",
+        f"- 当前已记录总耗时：{fmt_number(frame['seconds'].sum(), 2)} 秒",
+        "",
+        "| Stage | Seconds | Status |",
+        "|---|---:|---|",
+    ]
+    for row in slowest.to_dict("records"):
+        lines.append(f"| {row.get('stage')} | {fmt_number(row.get('seconds'), 2)} | {row.get('status', 'ok')} |")
+    lines.append("")
+    lines.append("完整计时会在报告写完后输出到 `runtime_profile.csv` 和 `runtime_profile.yaml`。")
+    return lines
+
+
+def backtest_stress_report_lines(summary: dict[str, Any]) -> list[str]:
+    if not summary.get("enabled", False):
+        return ["- 未启用。"]
+    rows = summary.get("rows", [])
+    if not rows:
+        return ["- 已启用，但没有生成压力测试结果。"]
+
+    lines = [
+        "- 压力测试中的 `cost_bps` 不是券商佣金预测；即使零佣金，也可用它近似买卖价差、滑点、开盘成交不确定性和市场冲击。",
+        "| Variant | Entry Lag | Entry Price | Cost bps | 累计收益 | 年化收益 | 最大回撤 | 超额累计收益 | Alpha | Beta | 平均换手 |",
+        "|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+    ]
+    for row in rows:
+        lines.append(
+            "| {name} | {lag} | {price} | {cost} | {cum} | {ann} | {dd} | {excess} | {alpha} | {beta} | {turnover} |".format(
+                name=row.get("name", "N/A"),
+                lag=fmt_optional_int(row.get("entry_lag_days")),
+                price=row.get("entry_price", "N/A"),
+                cost=fmt_number(row.get("cost_bps"), 1),
+                cum=fmt_pct(row.get("cumulative_return")),
+                ann=fmt_pct(row.get("annualized_return")),
+                dd=fmt_pct(row.get("max_drawdown")),
+                excess=fmt_pct(row.get("excess_cumulative_return")),
+                alpha=fmt_pct(row.get("alpha_annualized")),
+                beta=fmt_number(row.get("beta"), 3),
+                turnover=fmt_pct(row.get("avg_turnover")),
+            )
+        )
+    insights = summary.get("insights", {})
+    if insights.get("enabled", False):
+        lines.extend(
+            [
+                "",
+                f"- 压力测试基线：`{insights.get('baseline', 'N/A')}`",
+                f"- Entry lag=2 年化变化：{fmt_delta_pct(insights.get('entry_lag_2_annualized_delta'))}",
+                f"- 高成本压力年化变化：{fmt_delta_pct(insights.get('high_cost_annualized_delta'))}",
+                f"- 结论：{insights.get('conclusion', 'N/A')}",
+                "- 年化收益最高组合：",
+                *format_yaml_block(insights.get("best_annualized_return", {})),
+                "- 高成本最弱组合：",
+                *format_yaml_block(insights.get("worst_high_cost", {})),
+            ]
+        )
+    lines.append("压力测试复用同一份测试期预测分数，不重新训练模型；它只改变入场延迟、入场价格和交易成本。")
+    return lines
+
+
 def write_report(
     predictions: pd.DataFrame,
     meta: dict[str, Any],
@@ -1446,6 +2172,10 @@ def write_report(
     config: dict[str, Any],
     paths: dict[str, Path],
 ) -> None:
+    if config.get("report", {}).get("lightweight", False):
+        write_lightweight_report(predictions, meta, failures, config, paths)
+        return
+
     top_n = int(config["report"]["top_n"])
     top_predictions = predictions.head(top_n)
     model_kwargs = config["model"]["kwargs"]
@@ -1477,9 +2207,16 @@ def write_report(
     benchmark_summary = backtest_summary.get("benchmark", {})
     attribution_summary = backtest_summary.get("attribution", {})
     strategy_comparison_summary = meta.get("strategy_comparison", {})
+    backtest_stress_summary = meta.get("backtest_stress", {})
     within_sector_summary = meta.get("within_sector_review", {})
     sector_error_summary = meta.get("sector_error_review", {})
     short_history_summary = meta.get("short_history_review", {})
+    macro_regime_summary = meta.get("macro_regime_review", {})
+    data_quality_summary = meta.get("data_quality", {})
+    industry_mapping_summary = meta.get("industry_mapping", {})
+    crsp_industry_validation_summary = meta.get("crsp_industry_validation", {})
+    fundamental_cleaning_summary = read_optional_yaml(paths["fundamental_cleaning_summary"])
+    edgar_effectiveness_summary = read_optional_yaml(paths["edgar_feature_effectiveness_summary"])
     lines = [
         f"# {config['experiment']['name']} Report",
         "",
@@ -1489,6 +2226,8 @@ def write_report(
         "",
         "- 这次结果经过了 Qlib 模型流程：Qlib 数据格式、Alpha158 特征、LightGBM 模型训练、最新日预测分数排序。",
         "- 结果是学习研究材料，不是投资建议。",
+        "- 严格结果优先于高收益结果；未通过 PIT 数据验收的实验不能作为策略主结论。",
+        f"- 本次 strict headline 状态：`{data_quality_summary.get('strict_result_status', 'unknown')}`。",
         "",
         "## 实验名",
         "",
@@ -1501,6 +2240,10 @@ def write_report(
         "## 数据口径",
         "",
         *format_yaml_block(config["data"]),
+        "",
+        "## 严格 PIT 数据验收",
+        "",
+        *data_quality_report_lines(data_quality_summary),
         "",
         "## 证券主数据",
         "",
@@ -1525,7 +2268,17 @@ def write_report(
         "## 财报与估值特征",
         "",
         *(
-            format_yaml_block(config.get("fundamentals", {}))
+            [
+                *format_yaml_block(config.get("fundamentals", {})),
+                f"- EDGAR 特征行数：{meta.get('fundamental_feature_row_count', 0)}",
+                f"- EDGAR 特征列数：{meta.get('fundamental_feature_count', 0)}",
+                "- EDGAR 覆盖审计：",
+                *format_yaml_block(meta.get("edgar_coverage_review", {})),
+                "- EDGAR 清洗摘要：",
+                *format_yaml_block(fundamental_cleaning_summary),
+                "- EDGAR 字段有效性审计：",
+                *format_yaml_block(edgar_effectiveness_summary),
+            ]
             if config.get("fundamentals", {}).get("enabled", False)
             else ["- 未启用。"]
         ),
@@ -1543,6 +2296,7 @@ def write_report(
         *(
             [
                 *format_yaml_block(config.get("market_features", {})),
+                f"- 原始行情派生特征是否直接进入模型：`{meta.get('market_append_to_model', True)}`",
                 f"- 行情相对特征数量：{meta.get('market_feature_count', 0)}",
                 f"- 行情相对特征失败或跳过数量：{meta.get('market_feature_failure_count', 0)}",
                 "- 行情相对特征覆盖：",
@@ -1557,6 +2311,7 @@ def write_report(
         *(
             [
                 *format_yaml_block(config.get("macro_features", {})),
+                f"- raw macro 是否直接进入模型：`{meta.get('macro_append_to_model', True)}`",
                 f"- 宏观特征数量：{meta.get('macro_feature_count', 0)}",
                 f"- 宏观特征失败或跳过数量：{meta.get('macro_failure_count', 0)}",
                 "- 宏观特征覆盖：",
@@ -1567,6 +2322,10 @@ def write_report(
             if config.get("macro_features", {}).get("enabled", False)
             else ["- 未启用。"]
         ),
+        "",
+        "## 宏观交互特征",
+        "",
+        *macro_interaction_report_lines(config, meta),
         "",
         "## 标签与特征",
         "",
@@ -1664,8 +2423,14 @@ def write_report(
             f"- 行业分类失败或跳过数量：{meta.get('industry_failure_count', 0)}",
             f"- 宏观特征数量：{meta.get('macro_feature_count', 0)}",
             f"- 宏观特征失败或跳过数量：{meta.get('macro_failure_count', 0)}",
+            f"- 宏观交互特征数量：{meta.get('macro_interaction_feature_count', 0)}",
+            f"- 宏观交互失败或跳过数量：{meta.get('macro_interaction_failure_count', 0)}",
             "",
             "IC 可以粗略理解为：每个交易日横截面上，模型预测分数和真实后续收益的相关性。",
+            "",
+            "## 运行耗时画像",
+            "",
+            *runtime_profile_report_lines(paths),
             "",
             "## TopK 成本后回测",
             "",
@@ -1738,6 +2503,14 @@ def write_report(
             "## 行业暴露对照实验",
             "",
             *strategy_comparison_report_lines(strategy_comparison_summary),
+            "",
+            "## 回测压力测试",
+            "",
+            *backtest_stress_report_lines(backtest_stress_summary),
+            "",
+            "## Macro Regime Review",
+            "",
+            *macro_regime_review_report_lines(macro_regime_summary),
             "",
             "## 行业内选股复盘",
             "",
@@ -1821,6 +2594,14 @@ def write_report(
                 else ["- 未启用。"]
             ),
             "",
+            "## CRSP 行业映射",
+            "",
+            *industry_mapping_report_lines(industry_mapping_summary),
+            "",
+            "## CRSP 行业字段验收",
+            "",
+            *crsp_industry_validation_report_lines(crsp_industry_validation_summary),
+            "",
             "## 行业覆盖",
             "",
             f"- 股票池 sector 缺失数量：{meta.get('industry_coverage', {}).get('sector_missing_count', 0)}",
@@ -1830,7 +2611,7 @@ def write_report(
             "- TopN industry 分布：",
             *format_yaml_block(meta.get("top_industry_counts", {})),
             "",
-            "第一版行业分类来自当前 Nasdaq public snapshot，不是历史 PIT 行业分类。它适合学习行业内比较，但不能替代严谨回测里的历史行业口径。",
+            "CRSP 主线的行业字段来自 SIC/NAICS 验收结果。未通过验收时，行业字段只用于展示和归因，不进入主模型、行业约束或行业内相对特征。",
             "",
             "## 数据失败数量",
             "",
@@ -1851,16 +2632,43 @@ def write_report(
             "- `liquidity_exclusions.csv`：流动性过滤剔除记录。",
             "- `history_buckets.csv`：每只进入 Qlib source CSV 股票的历史长度分桶。",
             "- `fundamental_features.parquet`：日频 PIT 财报与估值特征；仅启用 EDGAR 时生成有效内容。",
+            "- `fundamental_features_cleaned.parquet`：按固定经济规则清洗并按 feature group 选择后的 EDGAR 特征；启用清洗时模型读取它。",
+            "- `fundamental_cleaning_summary.yaml`：EDGAR 静态清洗、负估值置空和裁剪统计。",
             "- `fundamental_failures.csv`：EDGAR 映射、字段或行情缺失记录。",
             "- `edgar_cik_map.csv`：本次股票池 ticker 到 SEC CIK 的映射。",
+            "- `edgar_coverage_summary.yaml`：EDGAR 覆盖率、特征行数、CIK 映射和失败摘要。",
+            "- `edgar_coverage_by_year.csv` / `edgar_coverage_by_split.csv`：按年份和训练切分统计的 EDGAR 覆盖。",
+            "- `edgar_coverage_by_sector.csv` / `edgar_coverage_by_industry.csv`：按 CRSP PIT SIC2/SIC4 统计的 EDGAR 覆盖。",
+            "- `edgar_coverage_by_history_bucket.csv`：按历史长度桶统计的 EDGAR 覆盖。",
+            "- `edgar_feature_missingness.csv`：每个 EDGAR 特征的缺失率。",
+            "- `edgar_failure_breakdown.csv`：EDGAR 失败原因聚合。",
+            "- `edgar_missingness_root_cause.csv`：按 instrument / field 拆分的 EDGAR 缺失归因。",
+            "- `edgar_field_availability_by_year.csv`：按年份统计的 EDGAR 字段可用率。",
+            "- `edgar_tag_resolution_report.csv`：每个字段命中的 SEC XBRL concept / unit 记录。",
+            "- `edgar_feature_effectiveness_summary.yaml`：EDGAR 字段 IC、Rank IC 和分位收益诊断摘要。",
+            "- `edgar_feature_ic_summary.csv` / `edgar_feature_ic_by_year.csv` / `edgar_feature_ic_by_sector.csv`：字段级横截面预测力诊断。",
+            "- `edgar_feature_quantile_spread.csv`：字段 Top/Bottom 分位未来收益差。",
             "- `market_features.parquet`：日频 PIT 行情派生特征和 sector / industry 内相对特征。",
             "- `market_feature_failures.csv`：行情相对特征失败原因。",
             "- `macro_raw_observations.parquet`：FRED/ALFRED 原始 observation 与 real-time/vintage 记录。",
             "- `macro_asof_observations.parquet`：按交易日重建的 PIT 宏观 as-of 序列。",
             "- `macro_features.parquet`：广播到 `(datetime, instrument)` 的日频宏观特征。",
             "- `macro_failures.csv`：宏观序列下载、解析或缺失记录。",
+            "- `macro_interaction_features.parquet`：宏观状态与估值、行业、动量、波动率等股票差异相乘后的交互特征。",
+            "- `macro_interaction_failures.csv`：宏观交互特征缺失或无法生成的记录。",
+            "- `macro_regime_daily_metrics.csv`：按 signal date 打上宏观 regime 标签后的回测周期指标。",
+            "- `macro_regime_summary.csv`：各实验在不同 macro regime 下的收益、alpha、beta 和回撤摘要。",
+            "- `macro_regime_strategy_comparison.csv`：direct macro / macro interactions 相对 baseline 的 regime 差异。",
+            "- `macro_regime_sector_exposure.csv`：不同 regime 下的行业暴露和贡献。",
+            "- `macro_regime_contribution_summary.csv`：不同 regime 下的组合贡献汇总。",
+            "- `macro_regime_review_summary.yaml`：宏观 regime 复盘摘要。",
             "- `industry_features.parquet`：行业内 rank / percentile 特征；仅启用行业特征时生成有效内容。",
             "- `industry_failures.csv`：sector / industry 缺失或 rank 字段缺失记录。",
+            "- `edgar_relative_feature_coverage.csv`：行业内 EDGAR rank / percentile 特征覆盖率。",
+            "- `industry_master.parquet`：CRSP 月末行 + fallback 生成的 PIT-oriented 行业映射。",
+            "- `industry_mapping_coverage.csv`：行业映射按生效日期统计的严格覆盖率。",
+            "- `industry_mapping_failures.csv`：UNKNOWN 或非 PIT fallback 行业记录。",
+            "- `industry_mapping_summary.yaml`：行业映射来源、覆盖率和是否允许恢复行业路径的摘要。",
             "- `predictions.csv`：最新日全部模型分数。",
             "- `bucketed_predictions.csv`：追加历史分桶、桶内排名和全局排名后的全部模型分数。",
             "- `selected_top10.csv`：按历史长度桶名额选择后的最终 Top10。",
@@ -1892,6 +2700,23 @@ def write_report(
             "- `short_history_feature_differences.csv`：短历史赢家 vs 输家的特征差异。",
             "- `short_history_sector_breakdown.csv`：短历史收益和亏损按 sector / industry 拆分。",
             "- `short_history_review_summary.yaml`：短历史专项复盘摘要。",
+            "- `pit_universe_validation.csv`：PIT 股票池、退市覆盖、历史成分和价格口径验收。",
+            "- `security_master_validation.csv`：证券主数据、上市/退市日期和 PIT 行业分类验收。",
+            "- `market_cap_validation.csv`：历史市值、shares outstanding 和当前市值反推风险验收。",
+            "- `data_quality_summary.yaml`：本次实验是否允许作为 strict headline 的数据质量摘要。",
+            "- `crsp_industry_validation.csv`：CRSP SIC/NAICS 行业字段覆盖率验收。",
+            "- `crsp_industry_coverage_by_year.csv`：训练期按年份统计的 SIC/NAICS 覆盖率。",
+            "- `crsp_industry_coverage_by_month.csv`：按月度动态 membership 统计的行业覆盖率。",
+            "- `crsp_industry_coverage_by_rebalance.csv`：测试期调仓日行业覆盖率。",
+            "- `crsp_industry_validation_summary.yaml`：行业约束和行业相对特征是否允许进入主策略的摘要。",
+            "- `provider_capability_summary.yaml`：Sharadar / vendor 字段与订阅能力验收摘要；仅 vendor 数据源生成有效内容。",
+            "- `provider_table_columns.csv`：provider 表字段、filter 和主键信息。",
+            "- `provider_capability_report.md`：provider capability probe 的阅读报告。",
+            "- `backtest_stress_matrix.csv`：entry lag、entry price、交易成本压力测试结果。",
+            "- `backtest_stress_summary.yaml`：回测压力测试结论。",
+            "- `backtest_stress/`：每个压力测试组合的独立回测输出。",
+            "- `runtime_profile.csv`：本次运行各阶段耗时明细，用于定位训练慢在哪里。",
+            "- `runtime_profile.yaml`：本次运行耗时摘要和最慢阶段。",
             "- `report.md`：本报告。",
             "- `resolved_config.yaml`：本次实际使用配置，复盘时优先看它。",
             "- `qlib_source_csv/`：逐股票原始日线 CSV。",
@@ -1901,36 +2726,159 @@ def write_report(
     paths["report_md"].write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def write_lightweight_report(
+    predictions: pd.DataFrame,
+    meta: dict[str, Any],
+    failures: pd.DataFrame,
+    config: dict[str, Any],
+    paths: dict[str, Path],
+) -> None:
+    top_n = int(config["report"]["top_n"])
+    backtest_summary = meta.get("backtest_summary", {})
+    benchmark_summary = backtest_summary.get("benchmark", {})
+    lines = [
+        f"# {config['experiment']['name']} Report",
+        "",
+        f"Generated at: {datetime.now().astimezone().isoformat(timespec='seconds')}",
+        "",
+        "## 结论口径",
+        "",
+        "- 轻量报告模式：用于 CRSP macro ablation 批量实验，避免完整报告拼装拖慢批跑。",
+        "- 结果是学习研究材料，不是投资建议。",
+        "",
+        "## 实验摘要",
+        "",
+        f"- 实验名：`{config['experiment']['name']}`",
+        f"- 预测分数来源：`{meta.get('prediction_source', 'trained')}`",
+        f"- 最新预测日：{meta.get('latest_date', 'N/A')}",
+        f"- 下载失败或历史不足：{len(failures)}",
+        "",
+        "## 模型验证",
+        "",
+        f"- Test 日均 IC：{meta['ic_mean']:.6f}" if not math.isnan(meta["ic_mean"]) else "- Test 日均 IC：N/A",
+        f"- Test 日均 Rank IC：{meta['rank_ic_mean']:.6f}"
+        if not math.isnan(meta["rank_ic_mean"])
+        else "- Test 日均 Rank IC：N/A",
+        f"- 参与 IC 计算的交易日：{meta['ic_count']}",
+        f"- 宏观特征数量：{meta.get('macro_feature_count', 0)}",
+        f"- 宏观特征失败或跳过数量：{meta.get('macro_failure_count', 0)}",
+        f"- 交互特征数量：{meta.get('macro_interaction_feature_count', 0)}",
+        f"- 宏观交互失败或跳过数量：{meta.get('macro_interaction_failure_count', 0)}",
+        "",
+        "## TopK 成本后回测",
+        "",
+        f"- 回测状态：`{backtest_summary.get('enabled', False)}`",
+        f"- 回测期数：{backtest_summary.get('period_count', 0)}",
+        f"- 累计收益：{fmt_pct(backtest_summary.get('cumulative_return'))}",
+        f"- 年化收益：{fmt_pct(backtest_summary.get('annualized_return'))}",
+        f"- 最大回撤：{fmt_pct(backtest_summary.get('max_drawdown'))}",
+        f"- 平均换手：{fmt_pct(backtest_summary.get('avg_turnover'))}",
+        f"- 平均持仓数量：{fmt_number(backtest_summary.get('avg_position_count'), 2)}",
+        "",
+        "## 基准与超额收益",
+        "",
+        f"- 超额累计收益：{fmt_pct(benchmark_summary.get('excess_cumulative_return'))}",
+        f"- 年化 Alpha：{fmt_pct(benchmark_summary.get('alpha_annualized'))}",
+        f"- Beta：{fmt_number(benchmark_summary.get('beta'), 3)}",
+        "",
+        "## 运行耗时画像",
+        "",
+        *runtime_profile_report_lines(paths),
+        "",
+        f"## Top {top_n} 预测结果",
+        "",
+        "| Rank | Symbol | Qlib Score |",
+        "|---:|---|---:|",
+    ]
+    for rank, (_, row) in enumerate(predictions.head(top_n).iterrows(), start=1):
+        lines.append(f"| {rank} | {row.get('symbol', row.get('instrument', 'N/A'))} | {float(row['score']):.8f} |")
+    lines.extend(
+        [
+            "",
+            "## 输出文件",
+            "",
+            "- `test_predictions.csv`：测试期所有交易日预测分数。",
+            "- `backtest_nav.csv` / `backtest_positions.csv` / `backtest_summary.yaml`：主 TopK 回测。",
+            "- `backtest_stress_matrix.csv` / `backtest_stress_summary.yaml`：交易假设压力测试。",
+            "- `macro_interaction_features.parquet` / `macro_interaction_failures.csv`：宏观交互特征产物。",
+            "- `runtime_profile.csv` / `runtime_profile.yaml`：运行耗时画像。",
+            "- `resolved_config.yaml`：本次实际使用配置。",
+        ]
+    )
+    paths["report_md"].write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 def read_optional_csv(path: Path) -> pd.DataFrame:
     if not path.exists():
         return pd.DataFrame()
-    return pd.read_csv(path)
+    try:
+        return pd.read_csv(path)
+    except EmptyDataError:
+        return pd.DataFrame()
+
+
+def read_optional_yaml(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        return {}
 
 
 def main() -> None:
     args = parse_args()
     config = load_config(args.config)
     paths = build_paths(config)
+    profiler = RuntimeProfiler()
+    paths["runtime_profiler"] = profiler
     paths["output_dir"].mkdir(parents=True, exist_ok=True)
-    write_resolved_config(config, paths)
+    with stage_timer(paths, "write_resolved_config"):
+        write_resolved_config(config, paths)
 
     print(f"Experiment: {config['experiment']['name']}")
     print(f"Output dir: {paths['output_dir']}")
     try:
-        prepared = create_data_source(config, paths).prepare()
+        with stage_timer(paths, "prepare_data"):
+            prepared = prepare_or_reuse_data(config, paths)
     except DataSourceUnavailable as exc:
         raise SystemExit(f"Data source unavailable: {exc}") from None
     universe = prepared.universe
     failures = prepared.failures
-    universe, liquidity_meta = apply_liquidity_filter(universe, paths["source_dir"], config, paths)
-    build_history_buckets(paths["source_dir"], paths["history_buckets_csv"], config)
-    dump_qlib_bin(config, paths)
+    with stage_timer(paths, "liquidity_filter"):
+        universe, liquidity_meta = apply_liquidity_filter(universe, paths["source_dir"], config, paths)
+    with stage_timer(paths, "history_buckets"):
+        build_history_buckets(paths["source_dir"], paths["history_buckets_csv"], config)
     try:
-        predictions, meta = train_and_predict(universe, config, paths)
+        with stage_timer(paths, "data_quality"):
+            data_quality = run_data_quality_validation(config, paths, prepared)
+    except DataQualityError as exc:
+        raise SystemExit(f"Data quality validation failed: {exc}") from None
+    with stage_timer(paths, "industry_mapping"):
+        industry_mapping = build_industry_mapping(config, paths)
+    with stage_timer(paths, "crsp_industry_validation"):
+        crsp_industry_validation = run_crsp_industry_validation(config, paths, prepared)
+    if prepared.metadata.get("qlib_data_ready"):
+        print(
+            "Reusing Qlib bin data from "
+            f"{prepared.metadata.get('source_run') or prepared.metadata.get('prepared_dataset_dir')}"
+        )
+    else:
+        with stage_timer(paths, "qlib_dump"):
+            dump_qlib_bin(config, paths)
+    try:
+        with stage_timer(paths, "train_predict_and_reviews"):
+            predictions, meta = train_and_predict(universe, config, paths)
         meta.update(liquidity_meta)
+        meta["data_quality"] = data_quality.summary
+        meta["industry_mapping"] = industry_mapping.summary
+        meta["crsp_industry_validation"] = crsp_industry_validation.summary
+        meta["prepared_data"] = prepared.metadata
     except DataSourceUnavailable as exc:
         raise SystemExit(f"Feature data unavailable: {exc}") from None
-    write_report(predictions, meta, failures, config, paths)
+    with stage_timer(paths, "write_report"):
+        write_report(predictions, meta, failures, config, paths)
+    profiler.write(paths["runtime_profile_csv"], paths["runtime_profile_summary"])
     print(f"Qlib model top {config['report']['top_n']}:")
     preview_columns = [
         column

@@ -1,0 +1,38 @@
+extends: strict_base_sharadar_launch_pit_2023_5d.yaml
+
+experiment:
+  name: strict_base_databento_launch_pit_2023_5d
+  output_dir: analysis/nasdaq_top500_score/runs/strict_base_databento_launch_pit_2023_5d
+
+universe:
+  provider: databento
+  mode: launch_pit_2023
+  exchange: NASDAQ
+  as_of_date: "2023-12-31"
+  as_of_trade_date: "2023-12-29"
+  top_n_by_market_cap: 500
+  include_delisted: true
+  min_history_rows: 180
+
+data:
+  source: databento
+  start_date: "2016-05-17"
+  end_date: "2026-05-17"
+  freq: day
+  price_adjustment: EQUS_SUMMARY
+  vwap_method: ohlc_mean
+
+databento:
+  cache_dir: analysis/nasdaq_top500_score/runs/strict_shared_databento_cache
+  dataset: EQUS.SUMMARY
+  schema: ohlcv-1d
+  stype_in: raw_symbol
+  stype_out: raw_symbol
+  countries: [US]
+  exchanges: [XNAS]
+  probe_symbols: [AAPL]
+  batch_size: 1000
+  timeout_seconds: 30
+  stop_probe_on_security_master_error: true
+  security_master_start: "2016-05-17"
+  security_master_end: "2026-05-18"

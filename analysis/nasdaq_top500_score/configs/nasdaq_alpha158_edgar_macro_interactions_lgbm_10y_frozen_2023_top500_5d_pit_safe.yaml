@@ -1,0 +1,381 @@
+experiment:
+  name: nasdaq_alpha158_edgar_macro_interactions_lgbm_10y_frozen_2023_top500_5d_pit_safe
+  output_dir: analysis/nasdaq_top500_score/runs/nasdaq_alpha158_edgar_macro_interactions_lgbm_10y_frozen_2023_top500_5d_pit_safe
+
+universe:
+  exchange: NASDAQ
+  top_n_by_market_cap: 500
+  exclude_etf: true
+  exclude_test_issue: true
+  min_history_rows: 180
+  selection:
+    method: approximate_market_cap_asof
+    as_of_date: "2023-12-31"
+    candidate_top_n_by_current_market_cap: 1000
+  security_master:
+    enabled: true
+    source: nasdaq_public
+    allowed_asset_types:
+      - common_stock
+      - ordinary_share
+      - adr_ads
+      - unknown_equity_like
+    allow_adr_ads: true
+    require_not_etf: true
+    require_not_test_issue: true
+
+data:
+  source: nasdaq_public
+  start_date: "2016-05-17"
+  end_date: "2026-05-17"
+  freq: day
+  vwap_method: ohlc_mean
+
+fundamentals:
+  enabled: true
+  source: sec_edgar
+  cache_dir: analysis/nasdaq_top500_score/runs/nasdaq_alpha158_edgar_lgbm_10y_eval_all/edgar_cache
+  forms:
+    - 10-K
+    - 10-Q
+    - 10-K/A
+    - 10-Q/A
+  min_filing_count: 4
+  enable_valuation: true
+  recent_filing_days: 5
+
+market_features:
+  enabled: true
+  source: qlib_source_csv
+  group_levels:
+    - sector
+    - industry
+  min_group_size: 5
+  dollar_volume_windows:
+    - 20
+    - 60
+  momentum_windows:
+    - 20
+    - 60
+    - 120
+  volatility_windows:
+    - 20
+    - 60
+  relative_features:
+    - log_close
+    - log_avg_dollar_volume_20d
+    - log_median_dollar_volume_60d
+    - momentum_20d
+    - momentum_60d
+    - momentum_120d
+    - volatility_20d
+    - volatility_60d
+    - history_rows_asof
+
+macro_features:
+  enabled: true
+  source: fred_alfred
+  append_to_model: false
+  cache_dir: analysis/nasdaq_top500_score/runs/nasdaq_alpha158_edgar_macro_lgbm_10y_frozen_2023_top500_5d_pit_safe/fred_alfred_cache
+  output_type: 4
+  realtime_start: "1776-07-04"
+  realtime_end: "2026-05-17"
+  effective_lag_trading_days: 1
+  history_buffer_days: 370
+  series:
+    - id: DGS10
+      name: dgs10
+      output_type: 1
+      realtime_mode: latest
+      effective_date_source: observation_date
+      max_staleness_days: 20
+      transforms: [level, change_20d, change_60d]
+    - id: DGS2
+      name: dgs2
+      output_type: 1
+      realtime_mode: latest
+      effective_date_source: observation_date
+      max_staleness_days: 20
+      transforms: [level, change_20d, change_60d]
+    - id: FEDFUNDS
+      name: fed_funds
+      max_staleness_days: 120
+      transforms: [level, change_3m]
+    - id: CPIAUCSL
+      name: cpi
+      max_staleness_days: 120
+      transforms: [level, yoy, change_3m]
+    - id: UNRATE
+      name: unemployment
+      max_staleness_days: 120
+      transforms: [level, change_3m]
+    - id: INDPRO
+      name: industrial_production
+      max_staleness_days: 120
+      transforms: [level, yoy, change_3m]
+    - id: BAA10Y
+      name: baa10y_credit_spread
+      output_type: 1
+      realtime_mode: latest
+      effective_date_source: observation_date
+      max_staleness_days: 20
+      transforms: [level, change_20d, change_60d]
+    - id: VIXCLS
+      name: vix
+      output_type: 1
+      realtime_mode: latest
+      effective_date_source: observation_date
+      max_staleness_days: 10
+      transforms: [level, change_20d, zscore_60d]
+    - id: DCOILWTICO
+      name: wti_oil
+      output_type: 1
+      realtime_mode: latest
+      effective_date_source: observation_date
+      max_staleness_days: 20
+      transforms: [level, pct_change_20d, pct_change_60d]
+    - id: DTWEXBGS
+      name: broad_dollar_index
+      output_type: 1
+      realtime_mode: latest
+      effective_date_source: observation_date
+      max_staleness_days: 20
+      transforms: [level, pct_change_20d, pct_change_60d]
+  derived:
+    - name: yield_curve_10y_2y
+      operation: subtract
+      left: dgs10
+      right: dgs2
+      transforms: [level, change_20d, change_60d]
+      inverted_flag: true
+
+macro_interactions:
+  enabled: true
+  interactions:
+    - name: macro_x_vix_zscore_momentum_20d
+      left: macro_vix_zscore_60d
+      right: market_sector_pct_momentum_20d
+    - name: macro_x_vix_change_volatility_20d
+      left: macro_vix_change_20d
+      right: market_sector_pct_volatility_20d
+    - name: macro_x_dgs10_price_to_sales
+      left: macro_dgs10
+      right: edgar_price_to_sales
+    - name: macro_x_dgs10_change_price_to_book
+      left: macro_dgs10_change_20d
+      right: edgar_price_to_book
+    - name: macro_x_credit_change_liabilities_to_assets
+      left: macro_baa10y_credit_spread_change_20d
+      right: edgar_liabilities_to_assets
+    - name: macro_x_credit_spread_cash_to_assets
+      left: macro_baa10y_credit_spread
+      right: edgar_cash_to_assets
+    - name: macro_x_curve_inverted_finance
+      left: macro_yield_curve_10y_2y_inverted
+      sector: Finance
+    - name: macro_x_dgs10_change_technology
+      left: macro_dgs10_change_20d
+      sector: Technology
+    - name: macro_x_wti_change_energy_industrials
+      left: macro_wti_oil_pct_change_20d
+      sectors: [Energy, Industrials]
+    - name: macro_x_dollar_change_technology
+      left: macro_broad_dollar_index_pct_change_20d
+      sector: Technology
+
+history_buckets:
+  enabled: true
+  thresholds:
+    full_10y: 2400
+    5_10y: 1260
+    2_5y: 504
+    lt_2y: 180
+
+bucket_ranking:
+  enabled: true
+  quotas:
+    full_10y: 4
+    5_10y: 3
+    2_5y: 2
+    lt_2y: 1
+  refill_order:
+    - full_10y
+    - 5_10y
+    - 2_5y
+    - lt_2y
+
+score_calibration:
+  enabled: false
+  method: bucket_penalty
+
+industry_constraints:
+  enabled: true
+  max_sector: 2
+  max_industry: 2
+
+liquidity_filter:
+  enabled: false
+  min_latest_close: 1.0
+  min_avg_dollar_volume_20d: 5000000
+  min_median_dollar_volume_60d: 2000000
+  max_zero_volume_ratio_60d: 0.05
+  min_recent_trading_days_60d: 40
+
+label:
+  expression: Ref($close, -6) / Ref($close, -1) - 1
+  name: LABEL0
+
+features:
+  handler: Alpha158
+  instruments: all
+
+split:
+  method: date
+  warmup_days: 60
+  train:
+    start: "2016-05-17"
+    end: "2021-12-31"
+  valid:
+    start: "2022-01-01"
+    end: "2023-12-31"
+  test:
+    start: "2024-01-01"
+    end: "2026-05-17"
+
+model:
+  class: LGBModel
+  kwargs:
+    loss: mse
+    learning_rate: 0.05
+    num_leaves: 64
+    max_depth: 8
+    n_estimators: 300
+    subsample: 0.85
+    colsample_bytree: 0.85
+    lambda_l1: 1.0
+    lambda_l2: 10.0
+    num_threads: 8
+    seed: 20260519
+    bagging_seed: 20260519
+    feature_fraction_seed: 20260519
+    data_random_seed: 20260519
+    drop_seed: 20260519
+    deterministic: true
+    force_col_wise: true
+
+training:
+  seed: 20260519
+  deterministic: true
+  reuse_test_predictions: false
+
+report:
+  top_n: 10
+
+backtest:
+  enabled: true
+  strategy: bucketed_topk
+  top_n: 10
+  holding_days: 5
+  rebalance_days: 5
+  entry_lag_days: 1
+  price: close
+  cost_bps: 10
+  min_positions: 5
+  point_in_time_filters:
+    enabled: true
+    history_bucket_asof: true
+    liquidity_asof: true
+    min_history_rows: 180
+    liquidity:
+      min_latest_close: 1.0
+      min_avg_dollar_volume_20d: 5000000
+      min_median_dollar_volume_60d: 2000000
+      max_zero_volume_ratio_60d: 0.05
+      min_recent_trading_days_60d: 40
+
+benchmark:
+  enabled: true
+  source: fred
+  symbol: NASDAQCOM
+  series_id: NASDAQCOM
+  name: Nasdaq Composite Index
+  refresh: false
+
+attribution:
+  enabled: true
+  top_n: 10
+
+strategy_comparison:
+  enabled: true
+  variants:
+    - name: unconstrained_top10
+      output_dir_suffix: unconstrained_top10
+      description: 原始 Top10，不限制 sector 或 industry，观察模型自然行业暴露。
+      industry_constraints:
+        enabled: false
+    - name: sector_cap_2_top10
+      output_dir_suffix: sector_cap_2_top10
+      description: 强行业约束 Top10，限制单 sector 最多 2 只、单 industry 最多 2 只。
+      industry_constraints:
+        enabled: true
+        max_sector: 2
+        max_industry: 2
+    - name: sector_cap_3_top10
+      output_dir_suffix: sector_cap_3_top10
+      description: 中等行业约束 Top10，限制单 sector 最多 3 只、单 industry 最多 2 只。
+      industry_constraints:
+        enabled: true
+        max_sector: 3
+        max_industry: 2
+    - name: sector_cap_4_top10
+      output_dir_suffix: sector_cap_4_top10
+      description: 宽松行业约束 Top10，限制单 sector 最多 4 只、单 industry 最多 2 只。
+      industry_constraints:
+        enabled: true
+        max_sector: 4
+        max_industry: 2
+
+macro_regime_review:
+  enabled: true
+  variant: sector_cap_2_top10
+  baseline_experiment: baseline
+  min_periods: 5
+  macro_features_path: analysis/nasdaq_top500_score/runs/nasdaq_alpha158_edgar_macro_lgbm_10y_frozen_2023_top500_5d_pit_safe/macro_features.parquet
+  experiments:
+    - name: baseline
+      run_dir: analysis/nasdaq_top500_score/runs/nasdaq_alpha158_edgar_lgbm_10y_frozen_2023_top500_5d_pit_safe
+    - name: direct_macro
+      run_dir: analysis/nasdaq_top500_score/runs/nasdaq_alpha158_edgar_macro_lgbm_10y_frozen_2023_top500_5d_pit_safe
+    - name: macro_interactions
+      run_dir: analysis/nasdaq_top500_score/runs/nasdaq_alpha158_edgar_macro_interactions_lgbm_10y_frozen_2023_top500_5d_pit_safe
+
+within_sector_review:
+  enabled: true
+  group_levels:
+    - sector
+    - industry
+  quantiles: 5
+  min_group_size: 10
+  min_summary_periods: 20
+
+sector_error_review:
+  enabled: true
+  target_sectors:
+    - Technology
+    - Health Care
+    - Consumer Discretionary
+  quantiles: 5
+  min_group_size: 10
+  min_summary_periods: 20
+
+short_history_review:
+  enabled: false
+  baseline_variant: sector_cap_2_top10
+  target_buckets:
+    - lt_2y
+    - 2_5y
+  comparison_buckets:
+    - full_10y
+    - 5_10y
+  quantiles: 5
+  min_bucket_samples: 20

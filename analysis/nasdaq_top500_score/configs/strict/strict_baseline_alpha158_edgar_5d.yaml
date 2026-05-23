@@ -1,0 +1,11 @@
+extends: strict_base_norgate_sp500_5d.yaml
+
+experiment:
+  name: strict_baseline_alpha158_edgar_5d
+  output_dir: analysis/nasdaq_top500_score/runs/strict_baseline_alpha158_edgar_5d
+
+macro_features:
+  enabled: false
+
+macro_interactions:
+  enabled: false

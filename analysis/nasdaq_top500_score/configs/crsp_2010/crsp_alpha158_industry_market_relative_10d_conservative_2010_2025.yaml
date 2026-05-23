@@ -1,0 +1,33 @@
+extends: crsp_alpha158_10d_conservative_2010_2025.yaml
+
+experiment:
+  name: crsp_alpha158_industry_market_relative_10d_conservative_2010_2025
+  output_dir: analysis/nasdaq_top500_score/runs/crsp_alpha158_industry_market_relative_10d_conservative_2010_2025
+
+strict_pit:
+  pit_industry_classification: true
+
+bucket_ranking:
+  enabled: false
+
+industry_constraints:
+  enabled: false
+
+market_features:
+  enabled: true
+  source: qlib_source_csv
+  append_to_model: true
+  group_levels: [sector, industry]
+  relative_features:
+    - log_avg_dollar_volume_20d
+    - log_median_dollar_volume_60d
+    - momentum_20d
+    - momentum_60d
+    - momentum_120d
+    - volatility_20d
+    - volatility_60d
+    - history_rows_asof
+  dollar_volume_windows: [20, 60]
+  momentum_windows: [20, 60, 120]
+  volatility_windows: [20, 60]
+  min_group_size: 5
